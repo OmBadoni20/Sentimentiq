@@ -1,5 +1,5 @@
 # ============================================================
-# SENTIMENTIQ — LSTM WITH NEUTRAL CLASS
+# SENTIMENTIQ — LSTM WITHOUT NEUTRAL CLASS
 # ============================================================
 
 import ssl
@@ -17,11 +17,11 @@ import warnings
 import time
 import re
 
-from sklearn.model_selection   import train_test_split
-from sklearn.metrics           import (classification_report,
-                                        confusion_matrix,
-                                        accuracy_score)
-from sklearn.preprocessing     import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics         import (classification_report,
+                                      confusion_matrix,
+                                      accuracy_score)
+from sklearn.preprocessing   import LabelEncoder
 
 import tensorflow as tf
 from tensorflow.keras.models         import Sequential
@@ -35,7 +35,7 @@ from tensorflow.keras.callbacks      import EarlyStopping
 warnings.filterwarnings('ignore')
 
 print("=" * 60)
-print("   LSTM SENTIMENT ANALYSIS — WITH NEUTRAL")
+print("   LSTM SENTIMENT ANALYSIS — WITHOUT NEUTRAL")
 print("=" * 60)
 print()
 
@@ -182,7 +182,7 @@ print()
 
 
 # ============================================================
-# STEP 9 — BUILD LSTM MODEL
+# STEP 9 — BUILD LSTM
 # ============================================================
 print("=" * 60)
 print("   STEP 9 — BUILDING LSTM MODEL")
@@ -213,7 +213,7 @@ print()
 
 
 # ============================================================
-# STEP 10 — TRAIN MODEL
+# STEP 10 — TRAIN
 # ============================================================
 print("=" * 60)
 print("   STEP 10 — TRAINING MODEL")
@@ -238,7 +238,7 @@ history = model.fit(
 
 train_time = time.time() - start_time
 print()
-print(f"✅ STEP 10 — Training complete in {train_time:.1f} seconds!")
+print(f"✅ STEP 10 — Trained in {train_time:.1f} seconds!")
 print()
 
 
@@ -260,17 +260,19 @@ print(f"✅ Accuracy: {accuracy:.2f}%")
 print()
 print("Classification Report:")
 print("-" * 60)
-print(classification_report(y_test, y_pred, target_names=le.classes_))
-print()
+print(classification_report(
+    y_test, y_pred,
+    target_names=le.classes_
+))
 
 
 
 
 # ============================================================
-# STEP 12 — PREDICT WITH NEUTRAL
+# STEP 12 — PREDICT WITHOUT NEUTRAL
 # ============================================================
 print("=" * 60)
-print("   STEP 12 — PREDICTION WITH NEUTRAL CLASS")
+print("   STEP 12 — PREDICTION WITHOUT NEUTRAL")
 print("=" * 60)
 print()
 
@@ -283,20 +285,18 @@ def predict_sentiment(text):
                )
     prob = model.predict(padded, verbose=0)[0][0]
 
-    # Neutral zone between 0.35 and 0.65
-    if prob >= 0.65:
+    # Simple threshold — no neutral
+    if prob >= 0.5:
         return "Positive", round(prob * 100, 1)
-    elif prob <= 0.35:
-        return "Negative", round((1 - prob) * 100, 1)
     else:
-        return "Neutral", round(max(prob, 1-prob) * 100, 1)
+        return "Negative", round((1 - prob) * 100, 1)
 
-print("Neutral threshold: 0.35 to 0.65")
-print("Below 0.35  → Negative")
-print("Above 0.65  → Positive")
-print("In between  → Neutral")
+print("Simple threshold: 0.5")
+print("Above 0.5 → Positive")
+print("Below 0.5 → Negative")
+print("No Neutral class!")
 print()
-print("✅ STEP 12 — Neutral class added!")
+print("✅ STEP 12 — Done!")
 print()
 
 
@@ -313,13 +313,11 @@ print()
 test_reviews = df_balanced['review'].values
 test_labels  = df_balanced['sentiment'].values
 
-print("Sample Predictions:")
-print("-" * 60)
 for i in range(10):
     sentiment, confidence = predict_sentiment(test_reviews[i])
     actual = test_labels[i]
-    emoji  = "😊" if sentiment == "Positive" else "😠" if sentiment == "Negative" else "😐"
-    match  = "✅" if sentiment == actual or sentiment == "Neutral" else "❌"
+    emoji  = "😊" if sentiment == "Positive" else "😠"
+    match  = "✅" if sentiment == actual else "❌"
     print(f"Review   : {test_reviews[i][:100]}...")
     print(f"Predicted: {emoji} {sentiment} ({confidence}%)")
     print(f"Actual   : {actual} {match}")
@@ -340,19 +338,26 @@ print("=" * 60)
 print()
 
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-fig.suptitle('LSTM With Neutral — Results', fontsize=16, fontweight='bold')
+fig.suptitle(
+    'LSTM Without Neutral — Results',
+    fontsize=16, fontweight='bold'
+)
 
 # Graph 1 — Training Accuracy
-axes[0, 0].plot(history.history['accuracy'],     label='Train', color='#6366f1')
-axes[0, 0].plot(history.history['val_accuracy'], label='Val',   color='#22d3ee')
+axes[0, 0].plot(history.history['accuracy'],
+                label='Train', color='#6366f1')
+axes[0, 0].plot(history.history['val_accuracy'],
+                label='Val',   color='#22d3ee')
 axes[0, 0].set_title('Training Accuracy', fontweight='bold')
 axes[0, 0].set_xlabel('Epoch')
 axes[0, 0].set_ylabel('Accuracy')
 axes[0, 0].legend()
 
 # Graph 2 — Training Loss
-axes[0, 1].plot(history.history['loss'],     label='Train Loss', color='#ef4444')
-axes[0, 1].plot(history.history['val_loss'], label='Val Loss',   color='#f59e0b')
+axes[0, 1].plot(history.history['loss'],
+                label='Train Loss', color='#ef4444')
+axes[0, 1].plot(history.history['val_loss'],
+                label='Val Loss',   color='#f59e0b')
 axes[0, 1].set_title('Training Loss', fontweight='bold')
 axes[0, 1].set_xlabel('Epoch')
 axes[0, 1].set_ylabel('Loss')
@@ -360,33 +365,33 @@ axes[0, 1].legend()
 
 # Graph 3 — Confusion Matrix
 cm = confusion_matrix(y_test, y_pred)
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-            xticklabels=le.classes_,
-            yticklabels=le.classes_,
-            ax=axes[1, 0])
+sns.heatmap(
+    cm, annot=True, fmt='d', cmap='Blues',
+    xticklabels = le.classes_,
+    yticklabels = le.classes_,
+    ax          = axes[1, 0]
+)
 axes[1, 0].set_title('Confusion Matrix', fontweight='bold')
 axes[1, 0].set_xlabel('Predicted')
 axes[1, 0].set_ylabel('Actual')
 
-# Graph 4 — Sentiment Counts
-pos_c = sum(1 for i in range(len(test_reviews))
-            if predict_sentiment(test_reviews[i])[0] == 'Positive')
-neg_c = sum(1 for i in range(len(test_reviews))
-            if predict_sentiment(test_reviews[i])[0] == 'Negative')
-neu_c = sum(1 for i in range(len(test_reviews))
-            if predict_sentiment(test_reviews[i])[0] == 'Neutral')
-
+# Graph 4 — Sentiment Distribution
+pos_c = (y_pred == 1).sum()
+neg_c = (y_pred == 0).sum()
 axes[1, 1].pie(
-    [pos_c, neg_c, neu_c],
-    labels  = [f'Positive\n{pos_c}', f'Negative\n{neg_c}', f'Neutral\n{neu_c}'],
-    colors  = ['#22c55e', '#ef4444', '#3b82f6'],
+    [pos_c, neg_c],
+    labels  = [f'Positive\n{pos_c}', f'Negative\n{neg_c}'],
+    colors  = ['#22c55e', '#ef4444'],
     autopct = '%1.1f%%'
 )
-axes[1, 1].set_title('Sentiment Distribution', fontweight='bold')
+axes[1, 1].set_title(
+    'Predicted Distribution',
+    fontweight='bold'
+)
 
 plt.tight_layout()
-plt.savefig('lstm_neutral_graph.png', dpi=150, bbox_inches='tight')
-print("✅ Graph saved!")
+plt.savefig('lstm_no_neutral_graph.png', dpi=150, bbox_inches='tight')
+print("✅ Graph saved as lstm_no_neutral_graph.png")
 plt.show()
 print()
 
@@ -411,7 +416,7 @@ custom_reviews = [
 
 for i, review in enumerate(custom_reviews):
     sentiment, confidence = predict_sentiment(review)
-    emoji = "😊" if sentiment == "Positive" else "😠" if sentiment == "Negative" else "😐"
+    emoji = "😊" if sentiment == "Positive" else "😠"
     print(f"Review {i+1}: {review}")
     print(f"Result  : {emoji} {sentiment} ({confidence}%)")
     print()
@@ -427,18 +432,15 @@ print("   STEP 16 — SAVING RESULTS")
 print("=" * 60)
 print()
 
-results = []
-for i in range(len(df_balanced)):
-    sentiment, confidence = predict_sentiment(df_balanced['review'].iloc[i])
-    results.append({
-        'Review'             : df_balanced['review'].iloc[i],
-        'Actual Sentiment'   : df_balanced['sentiment'].iloc[i],
-        'Predicted Sentiment': sentiment,
-        'Confidence'         : confidence
-    })
-
-pd.DataFrame(results).to_csv('lstm_neutral_results.csv', index=False)
-print("✅ Results saved to lstm_neutral_results.csv")
+results_df = pd.DataFrame({
+    'Review'             : X_test.tolist(),
+    'Actual Sentiment'   : le.inverse_transform(y_test),
+    'Predicted Sentiment': le.inverse_transform(y_pred),
+    'Correct'            : ['✅' if a == p else '❌'
+                            for a, p in zip(y_test, y_pred)]
+})
+results_df.to_csv('lstm_no_neutral_results.csv', index=False)
+print("✅ Results saved to lstm_no_neutral_results.csv")
 print()
 
 
@@ -448,10 +450,14 @@ print()
 # FINAL SUMMARY
 # ============================================================
 print("=" * 60)
-print("   ✅ LSTM WITH NEUTRAL — COMPLETE!")
+print("   ✅ LSTM WITHOUT NEUTRAL — COMPLETE!")
 print("=" * 60)
 print(f"   Model    : LSTM Neural Network")
-print(f"   Classes  : Positive / Negative / Neutral")
-print(f"   Accuracy : {accuracy:.2f}% (on Pos/Neg only)")
+print(f"   Classes  : Positive / Negative only")
+print(f"   Accuracy : {accuracy:.2f}%")
 print(f"   Training : {train_time:.1f} seconds")
+print()
+print("   Output Files:")
+print("   📊 lstm_no_neutral_graph.png")
+print("   📄 lstm_no_neutral_results.csv")
 print("=" * 60)
