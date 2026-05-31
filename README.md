@@ -1,8 +1,8 @@
 # ============================================================
-# SENTIMENTIQ - BILSTM SENTIMENT ANALYSIS
-# Model   : Bidirectional LSTM (PyTorch)
-# Dataset : IMDB Movie Reviews (18,000 reviews)
-# Classes : Positive / Negative / Neutral
+# SENTIMENTIQ - BIDIRECTIONAL LSTM SENTIMENT ANALYSIS
+# Model     : Bidirectional LSTM (TensorFlow/Keras)
+# Dataset   : IMDB Movie Reviews (18,000 reviews)
+# Classes   : Positive / Negative / Neutral
 # ============================================================
 
 import ssl
@@ -13,6 +13,7 @@ os.environ['CURL_CA_BUNDLE']            = ''
 os.environ['REQUESTS_CA_BUNDLE']        = ''
 os.environ['PYTHONHTTPSVERIFY']         = '0'
 os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
+os.environ['TF_CPP_MIN_LOG_LEVEL']      = '2'
 
 
 
@@ -21,7 +22,7 @@ os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 # STEP 1 - INSTALLING DEPENDENCIES
 # ============================================================
 # Run in CMD before running this script:
-# pip install torch pandas numpy matplotlib seaborn
+# pip install tensorflow keras pandas numpy matplotlib seaborn
 #     scikit-learn --trusted-host pypi.org
 #     --trusted-host files.pythonhosted.org
 
@@ -31,11 +32,6 @@ os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 # ============================================================
 # STEP 2 - IMPORTING LIBRARIES
 # ============================================================
-import torch
-import torch.nn              as nn
-import torch.optim           as optim
-from torch.utils.data        import Dataset, DataLoader
-
 import pandas                as pd
 import numpy                 as np
 import matplotlib.pyplot     as plt
@@ -50,38 +46,48 @@ from sklearn.metrics         import (classification_report,
                                      confusion_matrix,
                                      accuracy_score)
 
+import tensorflow as tf
+from tensorflow.keras.models         import Sequential
+from tensorflow.keras.layers         import (Embedding,
+                                             Bidirectional,
+                                             LSTM,
+                                             Dense,
+                                             Dropout,
+                                             SpatialDropout1D)
+from tensorflow.keras.preprocessing.text     import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.callbacks      import (EarlyStopping,
+                                             ModelCheckpoint,
+                                             ReduceLROnPlateau)
+
 warnings.filterwarnings('ignore')
 
 # Reproducibility
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
-torch.manual_seed(SEED)
+tf.random.set_seed(SEED)
 
 # Hyperparameters
+MAX_WORDS  = 20000
 MAX_LEN    = 200
-VOCAB_SIZE = 20000
 EMBED_DIM  = 128
-HIDDEN_DIM = 256
+LSTM_UNITS = 128
 NUM_EPOCHS = 10
 BATCH_SIZE = 64
-LR         = 1e-3
-DEVICE     = torch.device(
-    'cuda' if torch.cuda.is_available() else 'cpu'
-)
+LR         = 0.001
 
 print("=" * 65)
-print("   SENTIMENTIQ - BILSTM SENTIMENT ANALYSIS")
+print("   SENTIMENTIQ - BIDIRECTIONAL LSTM (TENSORFLOW)")
 print("=" * 65)
 print()
-print(f"   Device     : {DEVICE}")
-print(f"   PyTorch    : {torch.__version__}")
+print(f"   TensorFlow : {tf.__version__}")
+print(f"   MAX_WORDS  : {MAX_WORDS:,}")
 print(f"   MAX_LEN    : {MAX_LEN}")
-print(f"   VOCAB_SIZE : {VOCAB_SIZE:,}")
 print(f"   EMBED_DIM  : {EMBED_DIM}")
-print(f"   HIDDEN_DIM : {HIDDEN_DIM}")
+print(f"   LSTM_UNITS : {LSTM_UNITS}")
 print(f"   EPOCHS     : {NUM_EPOCHS}")
-print(f"   BATCH SIZE : {BATCH_SIZE}")
+print(f"   BATCH_SIZE : {BATCH_SIZE}")
 print(f"   LR         : {LR}")
 print()
 print("[OK] STEP 2 - Libraries imported!")
@@ -204,15 +210,14 @@ def preprocess(text):
     text = re.sub(r'http\S+',       ' ', text)
     text = re.sub(r'[^a-zA-Z\s]',   ' ', text)
     text = re.sub(r'\s+',           ' ', text).strip()
-    words = text.split()[:MAX_LEN]
-    return ' '.join(words)
+    return text
 
 print("Preprocessing steps:")
 print("   - Converting to lowercase")
 print("   - Removing HTML tags")
 print("   - Removing URLs")
 print("   - Removing special characters")
-print("   - Truncating to MAX_LEN words")
+print("   - Removing extra spaces")
 print()
 
 df_balanced['clean'] = df_balanced['review'].apply(preprocess)
@@ -229,104 +234,75 @@ print()
 
 
 # ============================================================
-# STEP 7 - BUILDING VOCABULARY
+# STEP 7 - TOKENIZATION
 # ============================================================
 print("=" * 65)
-print("   STEP 7 - BUILDING VOCABULARY")
+print("   STEP 7 - TOKENIZATION")
 print("=" * 65)
 print()
 
-print("What is Vocabulary?")
-print("   Maps every word to a unique number")
-print("   'good'    -> 45")
-print("   'bad'     -> 67")
-print("   'amazing' -> 123")
+print("What is Tokenization?")
+print("   Converts words to numbers")
+print("   'good movie' -> [45, 123]")
+print("   'bad film'   -> [67, 89]")
 print()
 
-all_words   = []
-for text in df_balanced['clean']:
-    all_words.extend(text.split())
+tokenizer = Tokenizer(
+    num_words  = MAX_WORDS,
+    oov_token  = "<OOV>"
+)
+tokenizer.fit_on_texts(df_balanced['clean'])
 
-word_counts = Counter(all_words)
-vocab       = ['<PAD>', '<UNK>'] + [
-    w for w, c in word_counts.most_common(VOCAB_SIZE - 2)
-    if c >= 2
-]
-word2idx    = {w: i for i, w in enumerate(vocab)}
-idx2word    = {i: w for w, i in word2idx.items()}
+X = tokenizer.texts_to_sequences(df_balanced['clean'])
+X = pad_sequences(
+    X,
+    maxlen    = MAX_LEN,
+    padding   = 'post',
+    truncating = 'post'
+)
+y = df_balanced['label'].values
 
-print(f"Vocabulary Settings:")
-print(f"   Max vocabulary : {VOCAB_SIZE:,}")
-print(f"   Actual words   : {len(vocab):,}")
-print(f"   Total words    : {len(all_words):,}")
-print(f"   Unique words   : {len(word_counts):,}")
+print(f"Tokenization Settings:")
+print(f"   Vocabulary size  : {MAX_WORDS:,}")
+print(f"   Words found      : {len(tokenizer.word_index):,}")
+print(f"   Max length       : {MAX_LEN}")
+print(f"   Input shape      : {X.shape}")
 print()
-
-def encode(text):
-    tokens = text.split()[:MAX_LEN]
-    ids    = [word2idx.get(t, 1) for t in tokens]
-    ids    = ids + [0] * (MAX_LEN - len(ids))
-    return ids
-
-print("[OK] STEP 7 - Vocabulary built!")
+print("[OK] STEP 7 - Tokenization complete!")
 print()
 
 
 
 
 # ============================================================
-# STEP 8 - PREPARING DATA
+# STEP 8 - SPLITTING DATA
 # ============================================================
 print("=" * 65)
-print("   STEP 8 - PREPARING DATA")
+print("   STEP 8 - SPLITTING DATA")
 print("=" * 65)
 print()
 
-idx2label = {0: 'Negative', 1: 'Positive'}
-
-X = [encode(t) for t in df_balanced['clean']]
-y = df_balanced['label'].tolist()
-
-split    = int(0.8 * len(X))
-X_train  = X[:split]
-X_test   = X[split:]
-y_train  = y[:split]
-y_test   = y[split:]
+split   = int(0.8 * len(X))
+X_train = X[:split]
+X_test  = X[split:]
+y_train = y[:split]
+y_test  = y[split:]
 
 print(f"Data Split:")
 print(f"   Training : {len(X_train):,} reviews (80%)")
 print(f"   Testing  : {len(X_test):,}  reviews (20%)")
 print()
-
-class ReviewDataset(Dataset):
-    def __init__(self, X, y):
-        self.X = torch.tensor(X, dtype=torch.long)
-        self.y = torch.tensor(y, dtype=torch.long)
-    def __len__(self):
-        return len(self.X)
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
-
-train_loader = DataLoader(
-    ReviewDataset(X_train, y_train),
-    batch_size=BATCH_SIZE, shuffle=True
-)
-test_loader  = DataLoader(
-    ReviewDataset(X_test, y_test),
-    batch_size=BATCH_SIZE, shuffle=False
-)
-
-print("[OK] STEP 8 - Data prepared!")
+print("[OK] STEP 8 - Split complete!")
 print()
 
 
 
 
 # ============================================================
-# STEP 9 - BUILDING BILSTM MODEL
+# STEP 9 - BUILDING BIDIRECTIONAL LSTM MODEL
 # ============================================================
 print("=" * 65)
-print("   STEP 9 - BUILDING BILSTM MODEL")
+print("   STEP 9 - BUILDING BIDIRECTIONAL LSTM MODEL")
 print("=" * 65)
 print()
 
@@ -344,54 +320,37 @@ print("    <-    <-    <-    <-")
 print("   Combines both = better understanding!")
 print()
 
-class BiLSTMModel(nn.Module):
-    def __init__(self):
-        super(BiLSTMModel, self).__init__()
-        self.embedding = nn.Embedding(
-            len(vocab), EMBED_DIM, padding_idx=0
-        )
-        self.lstm = nn.LSTM(
-            EMBED_DIM,
-            HIDDEN_DIM,
-            num_layers    = 2,
-            bidirectional = True,
-            batch_first   = True,
-            dropout       = 0.3
-        )
-        self.dropout = nn.Dropout(0.4)
-        self.fc1     = nn.Linear(HIDDEN_DIM * 2, 128)
-        self.fc2     = nn.Linear(128, 2)
-        self.relu    = nn.ReLU()
-        self.bn      = nn.BatchNorm1d(128)
+model = Sequential([
+    Embedding(
+        input_dim    = MAX_WORDS,
+        output_dim   = EMBED_DIM,
+        input_length = MAX_LEN
+    ),
+    SpatialDropout1D(0.3),
+    Bidirectional(LSTM(
+        LSTM_UNITS,
+        dropout           = 0.2,
+        recurrent_dropout = 0.2,
+        return_sequences  = True
+    )),
+    Bidirectional(LSTM(
+        64,
+        dropout           = 0.2,
+        recurrent_dropout = 0.2
+    )),
+    Dense(64, activation='relu'),
+    Dropout(0.4),
+    Dense(1, activation='sigmoid')
+])
 
-    def forward(self, x):
-        emb      = self.dropout(self.embedding(x))
-        out, _   = self.lstm(emb)
-        out      = out[:, -1, :]
-        out      = self.dropout(out)
-        out      = self.relu(self.bn(self.fc1(out)))
-        out      = self.fc2(out)
-        return out
-
-model     = BiLSTMModel().to(DEVICE)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(
-    model.parameters(), lr=LR, weight_decay=1e-5
-)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, mode='min', patience=2, factor=0.5
-)
-
-total_params = sum(
-    p.numel() for p in model.parameters()
-    if p.requires_grad
+model.compile(
+    optimizer = tf.keras.optimizers.Adam(learning_rate=LR),
+    loss      = 'binary_crossentropy',
+    metrics   = ['accuracy']
 )
 
 print("Model Architecture:")
-print(model)
-print()
-print(f"   Vocabulary Size : {len(vocab):,}")
-print(f"   Total Params    : {total_params:,}")
+model.summary()
 print()
 print("[OK] STEP 9 - Model built!")
 print()
@@ -406,90 +365,46 @@ print("=" * 65)
 print("   STEP 10 - TRAINING BILSTM MODEL")
 print("=" * 65)
 print()
-print("Training started... please wait...")
-print("Each epoch takes 5-8 minutes on CPU")
+print("Training started...")
+print("Watch live accuracy and loss below:")
 print()
 
-train_acc_history = []
-val_acc_history   = []
-loss_history      = []
-best_val_acc      = 0
-start_time        = time.time()
+# Callbacks
+early_stop = EarlyStopping(
+    monitor              = 'val_loss',
+    patience             = 3,
+    restore_best_weights = True,
+    verbose              = 1
+)
 
-for epoch in range(NUM_EPOCHS):
+checkpoint = ModelCheckpoint(
+    'best_bilstm_model.h5',
+    monitor   = 'val_accuracy',
+    save_best_only = True,
+    verbose   = 1
+)
 
-    # Training
-    model.train()
-    total_loss    = 0
-    correct_train = 0
-    total_train   = 0
+reduce_lr = ReduceLROnPlateau(
+    monitor  = 'val_loss',
+    factor   = 0.5,
+    patience = 2,
+    verbose  = 1
+)
 
-    for X_batch, y_batch in train_loader:
-        X_batch = X_batch.to(DEVICE)
-        y_batch = y_batch.to(DEVICE)
+start_time = time.time()
 
-        optimizer.zero_grad()
-        outputs = model(X_batch)
-        loss    = criterion(outputs, y_batch)
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
-
-        total_loss    += loss.item()
-        preds          = outputs.argmax(dim=1)
-        correct_train += (preds == y_batch).sum().item()
-        total_train   += y_batch.size(0)
-
-    train_acc = correct_train / total_train
-
-    # Validation
-    model.eval()
-    correct_val = 0
-    total_val   = 0
-    val_loss    = 0
-
-    with torch.no_grad():
-        for X_batch, y_batch in test_loader:
-            X_batch  = X_batch.to(DEVICE)
-            y_batch  = y_batch.to(DEVICE)
-            outputs  = model(X_batch)
-            loss     = criterion(outputs, y_batch)
-            val_loss += loss.item()
-            preds    = outputs.argmax(dim=1)
-            correct_val += (preds == y_batch).sum().item()
-            total_val   += y_batch.size(0)
-
-    val_acc      = correct_val / total_val
-    avg_val_loss = val_loss / len(test_loader)
-
-    scheduler.step(avg_val_loss)
-
-    train_acc_history.append(train_acc)
-    val_acc_history.append(val_acc)
-    loss_history.append(total_loss / len(train_loader))
-
-    if val_acc > best_val_acc:
-        best_val_acc = val_acc
-        torch.save(model.state_dict(), 'best_model.pt')
-        saved = "[BEST SAVED]"
-    else:
-        saved = ""
-
-    elapsed = time.time() - start_time
-
-    print(
-        f"Epoch {epoch+1:2d}/{NUM_EPOCHS} | "
-        f"Loss: {total_loss/len(train_loader):.4f} | "
-        f"Train: {train_acc*100:.2f}% | "
-        f"Val: {val_acc*100:.2f}% | "
-        f"Best: {best_val_acc*100:.2f}% | "
-        f"Time: {elapsed:.0f}s {saved}"
-    )
+history = model.fit(
+    X_train, y_train,
+    epochs           = NUM_EPOCHS,
+    batch_size       = BATCH_SIZE,
+    validation_split = 0.2,
+    callbacks        = [early_stop, checkpoint, reduce_lr],
+    verbose          = 1
+)
 
 train_time = time.time() - start_time
 print()
 print(f"[OK] STEP 10 - Training complete in {train_time:.1f}s!")
-print(f"     Best Validation Accuracy: {best_val_acc*100:.2f}%")
 print()
 
 
@@ -503,32 +418,16 @@ print("   STEP 11 - EVALUATING MODEL")
 print("=" * 65)
 print()
 
-model.load_state_dict(torch.load('best_model.pt'))
-model.eval()
-
-all_preds  = []
-all_labels = []
-all_probs  = []
-
-with torch.no_grad():
-    for X_batch, y_batch in test_loader:
-        X_batch = X_batch.to(DEVICE)
-        outputs = model(X_batch)
-        probs   = torch.softmax(outputs, dim=1)
-        preds   = outputs.argmax(dim=1).cpu().numpy()
-        all_preds.extend(preds)
-        all_labels.extend(y_batch.numpy())
-        all_probs.extend(probs.cpu().numpy())
-
-accuracy = accuracy_score(all_labels, all_preds) * 100
+y_pred_prob = model.predict(X_test, verbose=0)
+y_pred      = (y_pred_prob > 0.5).astype(int).flatten()
+accuracy    = accuracy_score(y_test, y_pred) * 100
 
 print(f"Model Accuracy : {accuracy:.2f}%")
-print(f"Best Val Acc   : {best_val_acc*100:.2f}%")
 print()
 print("Classification Report:")
 print("-" * 65)
 print(classification_report(
-    all_labels, all_preds,
+    y_test, y_pred,
     target_names=['Negative', 'Positive']
 ))
 print("[OK] STEP 11 - Evaluation complete!")
@@ -545,28 +444,30 @@ print("   STEP 12 - PREDICTION FUNCTION")
 print("=" * 65)
 print()
 
+idx2label = {0: 'Negative', 1: 'Positive'}
+
 def predict_sentiment(text):
-    model.eval()
-    clean  = preprocess(text)
-    ids    = torch.tensor(
-                 [encode(clean)],
-                 dtype=torch.long
-             ).to(DEVICE)
-    with torch.no_grad():
-        logits = model(ids)
-        probs  = torch.softmax(logits, dim=1).squeeze()
+    clean    = preprocess(text)
+    sequence = tokenizer.texts_to_sequences([clean])
+    padded   = pad_sequences(
+                   sequence,
+                   maxlen     = MAX_LEN,
+                   padding    = 'post',
+                   truncating = 'post'
+               )
+    prob = model.predict(padded, verbose=0)[0][0]
 
-    pred       = logits.argmax(dim=1).item()
-    confidence = round(probs[pred].item() * 100, 2)
-    label      = idx2label[pred]
-
-    if confidence < 65:
-        return "Neutral", confidence
-    return label, confidence
+    if prob >= 0.65:
+        return "Positive", round(prob * 100, 2)
+    elif prob <= 0.35:
+        return "Negative", round((1 - prob) * 100, 2)
+    else:
+        return "Neutral", round(max(prob, 1-prob) * 100, 2)
 
 print("Prediction Logic:")
-print("   Confidence >= 65% -> Positive or Negative")
-print("   Confidence <  65% -> Neutral")
+print("   prob >= 0.65 -> Positive")
+print("   prob <= 0.35 -> Negative")
+print("   in between   -> Neutral")
 print()
 print("[OK] STEP 12 - Prediction function ready!")
 print()
@@ -593,7 +494,7 @@ print("=" * 65)
 
 for rank, idx in enumerate(sample_indices, 1):
     review    = df_balanced['review'].iloc[split + idx]
-    actual    = idx2label[y_test[idx]]
+    actual    = idx2label[int(y_test[idx])]
     sentiment, confidence = predict_sentiment(review)
     bar       = "#" * int(confidence // 5)
 
@@ -634,24 +535,24 @@ print("   STEP 14 - GENERATING VISUALIZATIONS")
 print("=" * 65)
 print()
 
-epochs_range = range(1, NUM_EPOCHS + 1)
-
 fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 fig.suptitle(
-    'SentimentIQ - BiLSTM Sentiment Analysis',
+    'SentimentIQ - BiLSTM Sentiment Analysis (TensorFlow)',
     fontsize=16, fontweight='bold'
 )
+
+epochs_range = range(1, len(history.history['accuracy']) + 1)
 
 # Graph 1 - Training vs Validation Accuracy
 axes[0, 0].plot(
     epochs_range,
-    [a * 100 for a in train_acc_history],
+    [a * 100 for a in history.history['accuracy']],
     'o-', label='Train Accuracy',
     color='#1D9E75', linewidth=2, markersize=5
 )
 axes[0, 0].plot(
     epochs_range,
-    [a * 100 for a in val_acc_history],
+    [a * 100 for a in history.history['val_accuracy']],
     's--', label='Val Accuracy',
     color='#D85A30', linewidth=2, markersize=5
 )
@@ -667,17 +568,26 @@ axes[0, 0].grid(alpha=0.3)
 
 # Graph 2 - Training Loss
 axes[0, 1].plot(
-    epochs_range, loss_history,
-    'o-', color='#7F77DD',
-    linewidth=2, markersize=5
+    epochs_range,
+    history.history['loss'],
+    'o-', label='Train Loss',
+    color='#7F77DD', linewidth=2, markersize=5
 )
-axes[0, 1].set_title('Training Loss', fontweight='bold')
+axes[0, 1].plot(
+    epochs_range,
+    history.history['val_loss'],
+    's--', label='Val Loss',
+    color='#F5A623', linewidth=2, markersize=5
+)
+axes[0, 1].set_title('Training vs Validation Loss',
+                      fontweight='bold')
 axes[0, 1].set_xlabel('Epoch')
 axes[0, 1].set_ylabel('Loss')
+axes[0, 1].legend()
 axes[0, 1].grid(alpha=0.3)
 
 # Graph 3 - Confusion Matrix
-cm = confusion_matrix(all_labels, all_preds)
+cm = confusion_matrix(y_test, y_pred)
 sns.heatmap(
     cm, annot=True, fmt='d', cmap='Blues',
     xticklabels = ['Negative', 'Positive'],
@@ -689,8 +599,8 @@ axes[0, 2].set_xlabel('Predicted')
 axes[0, 2].set_ylabel('Actual')
 
 # Graph 4 - Predicted Distribution
-pos_c = sum(1 for p in all_preds if p == 1)
-neg_c = sum(1 for p in all_preds if p == 0)
+pos_c = (y_pred == 1).sum()
+neg_c = (y_pred == 0).sum()
 axes[1, 0].pie(
     [pos_c, neg_c],
     labels     = [f'Positive\n{pos_c}',
@@ -705,7 +615,12 @@ axes[1, 0].set_title(
 )
 
 # Graph 5 - Confidence Distribution
-confidences = [round(max(p) * 100, 2) for p in all_probs]
+confidences = [
+    round(float(p) * 100, 2)
+    if float(p) >= 0.5
+    else round((1 - float(p)) * 100, 2)
+    for p in y_pred_prob
+]
 axes[1, 1].hist(
     confidences, bins=20,
     color='#6366f1', edgecolor='white'
@@ -725,10 +640,13 @@ axes[1, 1].legend()
 
 # Graph 6 - Actual vs Predicted
 categories       = ['Negative', 'Positive']
-actual_counts    = [all_labels.count(0), all_labels.count(1)]
+actual_counts    = [
+    int((y_test == 0).sum()),
+    int((y_test == 1).sum())
+]
 predicted_counts = [
-    list(all_preds).count(0),
-    list(all_preds).count(1)
+    int((y_pred == 0).sum()),
+    int((y_pred == 1).sum())
 ]
 x     = np.arange(len(categories))
 width = 0.35
@@ -757,8 +675,8 @@ for bar in list(b1) + list(b2):
     )
 
 plt.tight_layout()
-plt.savefig('bilstm_graph.png', dpi=150, bbox_inches='tight')
-print("[OK] Graph saved as bilstm_graph.png")
+plt.savefig('bilstm_tf_graph.png', dpi=150, bbox_inches='tight')
+print("[OK] Graph saved as bilstm_tf_graph.png")
 plt.show()
 print()
 
@@ -773,31 +691,19 @@ print("   STEP 15 - SAVING MODEL AND RESULTS")
 print("=" * 65)
 print()
 
-torch.save({
-    'model_state' : model.state_dict(),
-    'vocab'       : vocab,
-    'word2idx'    : word2idx,
-    'idx2label'   : idx2label,
-    'config'      : {
-        'vocab_size' : len(vocab),
-        'embed_dim'  : EMBED_DIM,
-        'hidden_dim' : HIDDEN_DIM,
-        'max_len'    : MAX_LEN
-    }
-}, 'bilstm_sentiment_model.pt')
-
-print("[OK] Model saved as bilstm_sentiment_model.pt")
+model.save('bilstm_tf_model.h5')
+print("[OK] Model saved as bilstm_tf_model.h5")
 print()
 
 results_df = pd.DataFrame({
-    'Actual Sentiment'   : [idx2label[l] for l in all_labels],
-    'Predicted Sentiment': [idx2label[p] for p in all_preds],
-    'Confidence'         : [round(max(p)*100, 2) for p in all_probs],
+    'Actual Sentiment'   : [idx2label[int(l)] for l in y_test],
+    'Predicted Sentiment': [idx2label[int(p)] for p in y_pred],
+    'Confidence'         : confidences,
     'Correct'            : ['YES' if a == p else 'NO'
-                            for a, p in zip(all_labels, all_preds)]
+                            for a, p in zip(y_test, y_pred)]
 })
-results_df.to_csv('bilstm_results.csv', index=False)
-print("[OK] Results saved to bilstm_results.csv")
+results_df.to_csv('bilstm_tf_results.csv', index=False)
+print("[OK] Results saved to bilstm_tf_results.csv")
 print()
 
 total    = len(results_df)
@@ -818,22 +724,21 @@ print()
 # FINAL SUMMARY
 # ============================================================
 print("=" * 65)
-print("   ANALYSIS COMPLETE - BILSTM SENTIMENT ANALYSIS")
+print("   ANALYSIS COMPLETE - BILSTM (TENSORFLOW)")
 print("=" * 65)
 print()
-print(f"   Model           : Bidirectional LSTM (PyTorch)")
+print(f"   Model           : Bidirectional LSTM (TensorFlow)")
 print(f"   Dataset         : IMDB Movie Reviews")
 print(f"   Total Reviews   : {len(df_balanced):,}")
 print(f"   Training Size   : {len(X_train):,}")
 print(f"   Testing Size    : {len(X_test):,}")
-print(f"   Vocabulary Size : {len(vocab):,}")
-print(f"   Total Params    : {total_params:,}")
+print(f"   Vocabulary Size : {MAX_WORDS:,}")
 print(f"   Accuracy        : {accuracy:.2f}%")
-print(f"   Best Val Acc    : {best_val_acc*100:.2f}%")
 print(f"   Training Time   : {train_time:.1f} seconds")
 print()
 print("   Output Files:")
-print("   bilstm_graph.png           - 6 Visualizations")
-print("   bilstm_results.csv         - Full results")
-print("   bilstm_sentiment_model.pt  - Saved model")
+print("   bilstm_tf_graph.png    - 6 Visualizations")
+print("   bilstm_tf_results.csv  - Full results")
+print("   bilstm_tf_model.h5     - Saved model")
+print("   best_bilstm_model.h5   - Best model weights")
 print("=" * 65)
