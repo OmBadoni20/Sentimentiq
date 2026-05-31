@@ -63,7 +63,7 @@ MAX_LEN    = 200
 VOCAB_SIZE = 20000
 EMBED_DIM  = 128
 HIDDEN_DIM = 256
-NUM_EPOCHS = 15
+NUM_EPOCHS = 10
 BATCH_SIZE = 64
 LR         = 1e-3
 DEVICE     = torch.device(
@@ -204,7 +204,6 @@ def preprocess(text):
     text = re.sub(r'http\S+',       ' ', text)
     text = re.sub(r'[^a-zA-Z\s]',   ' ', text)
     text = re.sub(r'\s+',           ' ', text).strip()
-    # Truncate to MAX_LEN words
     words = text.split()[:MAX_LEN]
     return ' '.join(words)
 
@@ -288,12 +287,11 @@ idx2label = {0: 'Negative', 1: 'Positive'}
 X = [encode(t) for t in df_balanced['clean']]
 y = df_balanced['label'].tolist()
 
-# 80% train 20% test
-split       = int(0.8 * len(X))
-X_train     = X[:split]
-X_test      = X[split:]
-y_train     = y[:split]
-y_test      = y[split:]
+split    = int(0.8 * len(X))
+X_train  = X[:split]
+X_test   = X[split:]
+y_train  = y[:split]
+y_test   = y[split:]
 
 print(f"Data Split:")
 print(f"   Training : {len(X_train):,} reviews (80%)")
@@ -418,11 +416,13 @@ best_val_acc      = 0
 start_time        = time.time()
 
 for epoch in range(NUM_EPOCHS):
+
     # Training
     model.train()
     total_loss    = 0
     correct_train = 0
     total_train   = 0
+    batch_count   = 0
 
     for X_batch, y_batch in train_loader:
         X_batch = X_batch.to(DEVICE)
@@ -439,6 +439,18 @@ for epoch in range(NUM_EPOCHS):
         preds          = outputs.argmax(dim=1)
         correct_train += (preds == y_batch).sum().item()
         total_train   += y_batch.size(0)
+        batch_count   += 1
+
+        # Live batch progress
+        if batch_count % 20 == 0:
+            print(
+                f"   Epoch {epoch+1}/{NUM_EPOCHS} | "
+                f"Batch {batch_count}/{len(train_loader)} | "
+                f"Loss: {total_loss/batch_count:.4f} | "
+                f"Acc: {correct_train/total_train*100:.2f}%"
+                + " " * 10,
+                end='\r'
+            )
 
     train_acc = correct_train / total_train
 
@@ -471,12 +483,19 @@ for epoch in range(NUM_EPOCHS):
     if val_acc > best_val_acc:
         best_val_acc = val_acc
         torch.save(model.state_dict(), 'best_model.pt')
+        saved = "[BEST SAVED]"
+    else:
+        saved = ""
 
-    print(f"Epoch {epoch+1:2d}/{NUM_EPOCHS} | "
-          f"Loss: {total_loss/len(train_loader):.4f} | "
-          f"Train: {train_acc*100:.2f}% | "
-          f"Val: {val_acc*100:.2f}% | "
-          f"Best: {best_val_acc*100:.2f}%")
+    # Clear live line then print epoch summary
+    print(" " * 80, end='\r')
+    print(
+        f"Epoch {epoch+1:2d}/{NUM_EPOCHS} | "
+        f"Loss: {total_loss/len(train_loader):.4f} | "
+        f"Train: {train_acc*100:.2f}% | "
+        f"Val: {val_acc*100:.2f}% | "
+        f"Best: {best_val_acc*100:.2f}% {saved}"
+    )
 
 train_time = time.time() - start_time
 print()
@@ -579,14 +598,13 @@ sample_indices = random.sample(range(len(X_test)), 50)
 
 correct_count = 0
 neutral_count = 0
+wrong_count   = 0
 
-print(f"Showing predictions for 50 reviews from dataset:")
+print("Showing predictions for 50 random reviews from dataset:")
 print("=" * 65)
 
 for rank, idx in enumerate(sample_indices, 1):
-    review    = df_balanced['review'].iloc[
-                    split + idx
-                ]
+    review    = df_balanced['review'].iloc[split + idx]
     actual    = idx2label[y_test[idx]]
     sentiment, confidence = predict_sentiment(review)
     bar       = "#" * int(confidence // 5)
@@ -598,11 +616,12 @@ for rank, idx in enumerate(sample_indices, 1):
         neutral_count += 1
         match = "[NEUTRAL]"
     else:
+        wrong_count += 1
         match = "[WRONG]  "
 
-    print(f"[{rank:2d}] Review   : {review[:85]}...")
-    print(f"     Predicted: {sentiment:10s} | {bar} {confidence}%")
-    print(f"     Actual   : {actual:10s} | {match}")
+    print(f"[{rank:2d}] Review    : {review[:85]}...")
+    print(f"     Predicted : {sentiment:10s} | {bar} {confidence}%")
+    print(f"     Actual    : {actual:10s} | {match}")
     print("-" * 65)
 
 print()
@@ -610,7 +629,7 @@ print(f"Sample Summary:")
 print(f"   Total shown  : 50")
 print(f"   Correct      : {correct_count}")
 print(f"   Neutral      : {neutral_count}")
-print(f"   Wrong        : {50 - correct_count - neutral_count}")
+print(f"   Wrong        : {wrong_count}")
 print(f"   Sample Acc   : {correct_count/50*100:.1f}%")
 print()
 print("[OK] STEP 13 - Sample results shown!")
@@ -733,7 +752,10 @@ b2    = axes[1, 2].bar(
     x + width/2, predicted_counts,
     width, label='Predicted', color='#22d3ee'
 )
-axes[1, 2].set_title('Actual vs Predicted', fontweight='bold')
+axes[1, 2].set_title(
+    'Actual vs Predicted',
+    fontweight='bold'
+)
 axes[1, 2].set_xticks(x)
 axes[1, 2].set_xticklabels(categories)
 axes[1, 2].legend()
@@ -763,7 +785,6 @@ print("   STEP 15 - SAVING MODEL AND RESULTS")
 print("=" * 65)
 print()
 
-# Save full model
 torch.save({
     'model_state' : model.state_dict(),
     'vocab'       : vocab,
@@ -780,7 +801,6 @@ torch.save({
 print("[OK] Model saved as bilstm_sentiment_model.pt")
 print()
 
-# Save results
 results_df = pd.DataFrame({
     'Actual Sentiment'   : [idx2label[l] for l in all_labels],
     'Predicted Sentiment': [idx2label[p] for p in all_preds],
@@ -792,8 +812,8 @@ results_df.to_csv('bilstm_results.csv', index=False)
 print("[OK] Results saved to bilstm_results.csv")
 print()
 
-total   = len(results_df)
-correct = len(results_df[results_df['Correct'] == 'YES'])
+total    = len(results_df)
+correct  = len(results_df[results_df['Correct'] == 'YES'])
 avg_conf = results_df['Confidence'].mean()
 
 print("Results Summary:")
