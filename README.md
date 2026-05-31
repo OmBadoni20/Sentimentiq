@@ -407,6 +407,7 @@ print("   STEP 10 - TRAINING BILSTM MODEL")
 print("=" * 65)
 print()
 print("Training started... please wait...")
+print("Each epoch takes 5-8 minutes on CPU")
 print()
 
 train_acc_history = []
@@ -422,7 +423,6 @@ for epoch in range(NUM_EPOCHS):
     total_loss    = 0
     correct_train = 0
     total_train   = 0
-    batch_count   = 0
 
     for X_batch, y_batch in train_loader:
         X_batch = X_batch.to(DEVICE)
@@ -439,18 +439,6 @@ for epoch in range(NUM_EPOCHS):
         preds          = outputs.argmax(dim=1)
         correct_train += (preds == y_batch).sum().item()
         total_train   += y_batch.size(0)
-        batch_count   += 1
-
-        # Live batch progress
-        if batch_count % 20 == 0:
-            print(
-                f"   Epoch {epoch+1}/{NUM_EPOCHS} | "
-                f"Batch {batch_count}/{len(train_loader)} | "
-                f"Loss: {total_loss/batch_count:.4f} | "
-                f"Acc: {correct_train/total_train*100:.2f}%"
-                + " " * 10,
-                end='\r'
-            )
 
     train_acc = correct_train / total_train
 
@@ -487,14 +475,15 @@ for epoch in range(NUM_EPOCHS):
     else:
         saved = ""
 
-    # Clear live line then print epoch summary
-    print(" " * 80, end='\r')
+    elapsed = time.time() - start_time
+
     print(
         f"Epoch {epoch+1:2d}/{NUM_EPOCHS} | "
         f"Loss: {total_loss/len(train_loader):.4f} | "
         f"Train: {train_acc*100:.2f}% | "
         f"Val: {val_acc*100:.2f}% | "
-        f"Best: {best_val_acc*100:.2f}% {saved}"
+        f"Best: {best_val_acc*100:.2f}% | "
+        f"Time: {elapsed:.0f}s {saved}"
     )
 
 train_time = time.time() - start_time
@@ -593,14 +582,13 @@ print("   STEP 13 - SAMPLE RESULTS FROM DATASET")
 print("=" * 65)
 print()
 
-# Take 50 random reviews from test set
 sample_indices = random.sample(range(len(X_test)), 50)
 
 correct_count = 0
 neutral_count = 0
 wrong_count   = 0
 
-print("Showing predictions for 50 random reviews from dataset:")
+print("Showing predictions for 50 random reviews:")
 print("=" * 65)
 
 for rank, idx in enumerate(sample_indices, 1):
