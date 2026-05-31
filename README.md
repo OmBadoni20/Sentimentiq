@@ -4,10 +4,12 @@
 
 import ssl
 import os
+
 ssl._create_default_https_context = ssl._create_unverified_context
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ['REQUESTS_CA_BUNDLE'] = ''
 os.environ['PYTHONHTTPSVERIFY'] = '0'
+os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 
 import pandas as pd
 import numpy as np
@@ -35,7 +37,7 @@ from tensorflow.keras.callbacks      import EarlyStopping
 warnings.filterwarnings('ignore')
 
 print("=" * 60)
-print("   LSTM SENTIMENT ANALYSIS — WITHOUT NEUTRAL")
+print("   LSTM SENTIMENT ANALYSIS - WITHOUT NEUTRAL")
 print("=" * 60)
 print()
 
@@ -43,76 +45,100 @@ print()
 
 
 # ============================================================
-# STEP 3 — LOAD DATASET
+# STEP 3 - LOAD DATASET
 # ============================================================
-print("Loading dataset...")
+print("=" * 60)
+print("   STEP 3 - LOADING DATASET")
+print("=" * 60)
+print()
+print("Loading IMDB dataset from local CSV...")
+
 df = pd.read_csv("IMDB_small.csv")
 df.columns = ["review", "sentiment"]
 df["sentiment"] = df["sentiment"].map({
     "positive": "Positive",
     "negative": "Negative"
 })
-print(f"✅ Dataset loaded! Total: {len(df)}")
+
+print(f"[OK] Dataset loaded! Total: {len(df)}")
 print()
+print("First 3 reviews:")
+print("-" * 60)
+for i in range(3):
+    print(f"Review   : {df['review'][i][:100]}...")
+    print(f"Sentiment: {df['sentiment'][i]}")
+    print()
 
 
 
 
 # ============================================================
-# STEP 4 — EXPLORE DATASET
+# STEP 4 - EXPLORE DATASET
 # ============================================================
 print("=" * 60)
-print("   STEP 4 — EXPLORING DATASET")
+print("   STEP 4 - EXPLORING DATASET")
 print("=" * 60)
 print()
+
 print(f"Dataset Shape : {df.shape}")
 print()
 print("Sentiment Distribution:")
 print(df['sentiment'].value_counts())
 print()
+
 df['review_length'] = df['review'].apply(lambda x: len(x.split()))
 print("Review Length Statistics:")
 print(f"   Minimum : {df['review_length'].min()} words")
 print(f"   Maximum : {df['review_length'].max()} words")
 print(f"   Average : {df['review_length'].mean():.0f} words")
 print()
-print("✅ STEP 4 — Exploration complete!")
+print("[OK] STEP 4 - Exploration complete!")
 print()
 
 
 
 
 # ============================================================
-# STEP 5 — BALANCE DATASET
+# STEP 5 - BALANCE DATASET
 # ============================================================
 print("=" * 60)
-print("   STEP 5 — BALANCING DATASET")
+print("   STEP 5 - BALANCING DATASET")
 print("=" * 60)
 print()
+
 pos = len(df[df['sentiment'] == 'Positive'])
 neg = len(df[df['sentiment'] == 'Negative'])
-print(f"Before: Positive={pos}, Negative={neg}")
+
+print(f"Before balancing:")
+print(f"   Positive: {pos}")
+print(f"   Negative: {neg}")
+print()
 
 min_count   = min(pos, neg)
-df_pos      = df[df['sentiment'] == 'Positive'].sample(min_count, random_state=42)
-df_neg      = df[df['sentiment'] == 'Negative'].sample(min_count, random_state=42)
+df_pos      = df[df['sentiment'] == 'Positive'].sample(
+                  min_count, random_state=42)
+df_neg      = df[df['sentiment'] == 'Negative'].sample(
+                  min_count, random_state=42)
 df_balanced = pd.concat([df_pos, df_neg]).reset_index(drop=True)
-df_balanced = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
+df_balanced = df_balanced.sample(
+                  frac=1, random_state=42).reset_index(drop=True)
 
-print(f"After : Positive={len(df_balanced[df_balanced['sentiment']=='Positive'])}, Negative={len(df_balanced[df_balanced['sentiment']=='Negative'])}")
-print(f"Total : {len(df_balanced)}")
+print(f"After balancing:")
+print(f"   Positive: {len(df_balanced[df_balanced['sentiment'] == 'Positive'])}")
+print(f"   Negative: {len(df_balanced[df_balanced['sentiment'] == 'Negative'])}")
+print(f"   Total   : {len(df_balanced)}")
 print()
-print("✅ STEP 5 — Balanced!")
+print("[OK] STEP 5 - Dataset balanced!")
 print()
 
 
 
 
 # ============================================================
-# STEP 6 — PREPROCESS
+# STEP 6 - PREPROCESSING TEXT
 # ============================================================
 print("=" * 60)
-print("   STEP 6 — PREPROCESSING")
+print("   STEP 6 - PREPROCESSING TEXT")
 print("=" * 60)
 print()
 
@@ -123,19 +149,39 @@ def preprocess(text):
     text = re.sub(r'\s+',         ' ', text).strip()
     return text
 
+print("Preprocessing steps:")
+print("   - Converting to lowercase")
+print("   - Removing HTML tags")
+print("   - Removing special characters")
+print("   - Removing extra spaces")
+print()
+
 df_balanced['clean_review'] = df_balanced['review'].apply(preprocess)
-print("✅ STEP 6 — Preprocessing complete!")
+
+print("Example:")
+print(f"Before: {df_balanced['review'][0][:150]}")
+print()
+print(f"After : {df_balanced['clean_review'][0][:150]}")
+print()
+print("[OK] STEP 6 - Preprocessing complete!")
 print()
 
 
 
 
 # ============================================================
-# STEP 7 — TOKENIZATION
+# STEP 7 - TOKENIZATION
 # ============================================================
 print("=" * 60)
-print("   STEP 7 — TOKENIZATION")
+print("   STEP 7 - TOKENIZATION")
 print("=" * 60)
+print()
+
+print("What is Tokenization?")
+print("   Converts words to numbers so LSTM can read them")
+print("   Example:")
+print("   'good movie' -> [45, 123]")
+print("   'bad film'   -> [67, 89]")
 print()
 
 MAX_WORDS = 10000
@@ -145,26 +191,30 @@ tokenizer = Tokenizer(num_words=MAX_WORDS, oov_token="<OOV>")
 tokenizer.fit_on_texts(df_balanced['clean_review'])
 
 X = tokenizer.texts_to_sequences(df_balanced['clean_review'])
-X = pad_sequences(X, maxlen=MAX_LEN, padding='post', truncating='post')
+X = pad_sequences(X, maxlen=MAX_LEN, padding='post',
+                  truncating='post')
 
 le = LabelEncoder()
 y  = le.fit_transform(df_balanced['sentiment'])
 
-print(f"Vocabulary size  : {MAX_WORDS}")
-print(f"Max review length: {MAX_LEN}")
-print(f"Input shape      : {X.shape}")
+print(f"Tokenization Settings:")
+print(f"   Vocabulary size  : {MAX_WORDS} words")
+print(f"   Max review length: {MAX_LEN} words")
+print(f"   Words found      : {len(tokenizer.word_index)}")
 print()
-print("✅ STEP 7 — Tokenization complete!")
+print(f"Input shape: {X.shape}")
+print()
+print("[OK] STEP 7 - Tokenization complete!")
 print()
 
 
 
 
 # ============================================================
-# STEP 8 — SPLIT DATA
+# STEP 8 - SPLIT DATA
 # ============================================================
 print("=" * 60)
-print("   STEP 8 — SPLITTING DATA")
+print("   STEP 8 - SPLITTING DATA")
 print("=" * 60)
 print()
 
@@ -172,21 +222,28 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-print(f"Training : {len(X_train)} reviews")
-print(f"Testing  : {len(X_test)} reviews")
+print(f"Data Split:")
+print(f"   Training : {len(X_train)} reviews (80%)")
+print(f"   Testing  : {len(X_test)}  reviews (20%)")
 print()
-print("✅ STEP 8 — Split complete!")
+print("[OK] STEP 8 - Split complete!")
 print()
 
 
 
 
 # ============================================================
-# STEP 9 — BUILD LSTM
+# STEP 9 - BUILD LSTM MODEL
 # ============================================================
 print("=" * 60)
-print("   STEP 9 — BUILDING LSTM MODEL")
+print("   STEP 9 - BUILDING LSTM MODEL")
 print("=" * 60)
+print()
+
+print("What is LSTM?")
+print("   Long Short Term Memory")
+print("   Neural network that reads text")
+print("   word by word and remembers context")
 print()
 
 model = Sequential([
@@ -204,25 +261,31 @@ model.compile(
     metrics   = ['accuracy']
 )
 
+print("Model Architecture:")
 model.summary()
 print()
-print("✅ STEP 9 — Model built!")
+print("[OK] STEP 9 - Model built!")
 print()
 
 
 
 
 # ============================================================
-# STEP 10 — TRAIN
+# STEP 10 - TRAIN MODEL
 # ============================================================
 print("=" * 60)
-print("   STEP 10 — TRAINING MODEL")
+print("   STEP 10 - TRAINING MODEL")
 print("=" * 60)
+print()
+
+print("Training started...")
+print("Please wait...")
 print()
 
 early_stop = EarlyStopping(
-    monitor='val_loss', patience=3,
-    restore_best_weights=True
+    monitor             = 'val_loss',
+    patience            = 3,
+    restore_best_weights = True
 )
 
 start_time = time.time()
@@ -238,17 +301,17 @@ history = model.fit(
 
 train_time = time.time() - start_time
 print()
-print(f"✅ STEP 10 — Trained in {train_time:.1f} seconds!")
+print(f"[OK] STEP 10 - Training complete in {train_time:.1f} seconds!")
 print()
 
 
 
 
 # ============================================================
-# STEP 11 — EVALUATE
+# STEP 11 - EVALUATE MODEL
 # ============================================================
 print("=" * 60)
-print("   STEP 11 — EVALUATING MODEL")
+print("   STEP 11 - EVALUATING MODEL")
 print("=" * 60)
 print()
 
@@ -256,7 +319,7 @@ y_pred_prob = model.predict(X_test)
 y_pred      = (y_pred_prob > 0.5).astype(int).flatten()
 accuracy    = accuracy_score(y_test, y_pred) * 100
 
-print(f"✅ Accuracy: {accuracy:.2f}%")
+print(f"Model Accuracy: {accuracy:.2f}%")
 print()
 print("Classification Report:")
 print("-" * 60)
@@ -264,15 +327,18 @@ print(classification_report(
     y_test, y_pred,
     target_names=le.classes_
 ))
+print()
+print("[OK] STEP 11 - Evaluation complete!")
+print()
 
 
 
 
 # ============================================================
-# STEP 12 — PREDICT WITHOUT NEUTRAL
+# STEP 12 - PREDICT WITHOUT NEUTRAL
 # ============================================================
 print("=" * 60)
-print("   STEP 12 — PREDICTION WITHOUT NEUTRAL")
+print("   STEP 12 - PREDICTION FUNCTION")
 print("=" * 60)
 print()
 
@@ -285,75 +351,76 @@ def predict_sentiment(text):
                )
     prob = model.predict(padded, verbose=0)[0][0]
 
-    # Simple threshold — no neutral
     if prob >= 0.5:
         return "Positive", round(prob * 100, 1)
     else:
         return "Negative", round((1 - prob) * 100, 1)
 
-print("Simple threshold: 0.5")
-print("Above 0.5 → Positive")
-print("Below 0.5 → Negative")
-print("No Neutral class!")
+print("Threshold: 0.5")
+print("Above 0.5 -> Positive")
+print("Below 0.5 -> Negative")
+print("No Neutral class")
 print()
-print("✅ STEP 12 — Done!")
+print("[OK] STEP 12 - Prediction function ready!")
 print()
 
 
 
 
 # ============================================================
-# STEP 13 — SAMPLE RESULTS
+# STEP 13 - SAMPLE RESULTS
 # ============================================================
 print("=" * 60)
-print("   STEP 13 — SAMPLE RESULTS")
+print("   STEP 13 - SAMPLE RESULTS")
 print("=" * 60)
 print()
 
 test_reviews = df_balanced['review'].values
 test_labels  = df_balanced['sentiment'].values
 
+print("Sample Predictions:")
+print("-" * 60)
+
 for i in range(10):
     sentiment, confidence = predict_sentiment(test_reviews[i])
     actual = test_labels[i]
-    emoji  = "😊" if sentiment == "Positive" else "😠"
-    match  = "✅" if sentiment == actual else "❌"
+    match  = "[CORRECT]" if sentiment == actual else "[WRONG]"
     print(f"Review   : {test_reviews[i][:100]}...")
-    print(f"Predicted: {emoji} {sentiment} ({confidence}%)")
+    print(f"Predicted: {sentiment} ({confidence}%)")
     print(f"Actual   : {actual} {match}")
     print()
 
-print("✅ STEP 13 — Done!")
+print("[OK] STEP 13 - Sample results shown!")
 print()
 
 
 
 
 # ============================================================
-# STEP 14 — VISUALIZATIONS
+# STEP 14 - VISUALIZATIONS
 # ============================================================
 print("=" * 60)
-print("   STEP 14 — VISUALIZATIONS")
+print("   STEP 14 - GENERATING VISUALIZATIONS")
 print("=" * 60)
 print()
 
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 fig.suptitle(
-    'LSTM Without Neutral — Results',
+    'LSTM Sentiment Analysis - Without Neutral',
     fontsize=16, fontweight='bold'
 )
 
-# Graph 1 — Training Accuracy
+# Graph 1 - Training Accuracy
 axes[0, 0].plot(history.history['accuracy'],
-                label='Train', color='#6366f1')
+                label='Train Accuracy', color='#6366f1')
 axes[0, 0].plot(history.history['val_accuracy'],
-                label='Val',   color='#22d3ee')
+                label='Val Accuracy',   color='#22d3ee')
 axes[0, 0].set_title('Training Accuracy', fontweight='bold')
 axes[0, 0].set_xlabel('Epoch')
 axes[0, 0].set_ylabel('Accuracy')
 axes[0, 0].legend()
 
-# Graph 2 — Training Loss
+# Graph 2 - Training Loss
 axes[0, 1].plot(history.history['loss'],
                 label='Train Loss', color='#ef4444')
 axes[0, 1].plot(history.history['val_loss'],
@@ -363,7 +430,7 @@ axes[0, 1].set_xlabel('Epoch')
 axes[0, 1].set_ylabel('Loss')
 axes[0, 1].legend()
 
-# Graph 3 — Confusion Matrix
+# Graph 3 - Confusion Matrix
 cm = confusion_matrix(y_test, y_pred)
 sns.heatmap(
     cm, annot=True, fmt='d', cmap='Blues',
@@ -375,14 +442,16 @@ axes[1, 0].set_title('Confusion Matrix', fontweight='bold')
 axes[1, 0].set_xlabel('Predicted')
 axes[1, 0].set_ylabel('Actual')
 
-# Graph 4 — Sentiment Distribution
+# Graph 4 - Sentiment Distribution
 pos_c = (y_pred == 1).sum()
 neg_c = (y_pred == 0).sum()
 axes[1, 1].pie(
     [pos_c, neg_c],
-    labels  = [f'Positive\n{pos_c}', f'Negative\n{neg_c}'],
-    colors  = ['#22c55e', '#ef4444'],
-    autopct = '%1.1f%%'
+    labels     = [f'Positive\n{pos_c}',
+                  f'Negative\n{neg_c}'],
+    colors     = ['#22c55e', '#ef4444'],
+    autopct    = '%1.1f%%',
+    startangle = 90
 )
 axes[1, 1].set_title(
     'Predicted Distribution',
@@ -390,8 +459,9 @@ axes[1, 1].set_title(
 )
 
 plt.tight_layout()
-plt.savefig('lstm_no_neutral_graph.png', dpi=150, bbox_inches='tight')
-print("✅ Graph saved as lstm_no_neutral_graph.png")
+plt.savefig('lstm_no_neutral_graph.png',
+            dpi=150, bbox_inches='tight')
+print("[OK] Graph saved as lstm_no_neutral_graph.png")
 plt.show()
 print()
 
@@ -399,10 +469,10 @@ print()
 
 
 # ============================================================
-# STEP 15 — CUSTOM REVIEWS
+# STEP 15 - TEST CUSTOM REVIEWS
 # ============================================================
 print("=" * 60)
-print("   STEP 15 — TEST CUSTOM REVIEWS")
+print("   STEP 15 - TEST CUSTOM REVIEWS")
 print("=" * 60)
 print()
 
@@ -414,33 +484,34 @@ custom_reviews = [
     "I fell asleep halfway. Extremely boring and predictable."
 ]
 
+print("Testing with custom reviews:")
+print("-" * 60)
+
 for i, review in enumerate(custom_reviews):
     sentiment, confidence = predict_sentiment(review)
-    emoji = "😊" if sentiment == "Positive" else "😠"
     print(f"Review {i+1}: {review}")
-    print(f"Result  : {emoji} {sentiment} ({confidence}%)")
+    print(f"Result  : {sentiment} ({confidence}%)")
     print()
 
 
 
 
 # ============================================================
-# STEP 16 — SAVE RESULTS
+# STEP 16 - SAVE RESULTS
 # ============================================================
 print("=" * 60)
-print("   STEP 16 — SAVING RESULTS")
+print("   STEP 16 - SAVING RESULTS")
 print("=" * 60)
 print()
 
 results_df = pd.DataFrame({
-    'Review'             : X_test.tolist(),
     'Actual Sentiment'   : le.inverse_transform(y_test),
     'Predicted Sentiment': le.inverse_transform(y_pred),
-    'Correct'            : ['✅' if a == p else '❌'
+    'Correct'            : ['YES' if a == p else 'NO'
                             for a, p in zip(y_test, y_pred)]
 })
 results_df.to_csv('lstm_no_neutral_results.csv', index=False)
-print("✅ Results saved to lstm_no_neutral_results.csv")
+print("[OK] Results saved to lstm_no_neutral_results.csv")
 print()
 
 
@@ -450,14 +521,18 @@ print()
 # FINAL SUMMARY
 # ============================================================
 print("=" * 60)
-print("   ✅ LSTM WITHOUT NEUTRAL — COMPLETE!")
+print("   ANALYSIS COMPLETE - LSTM WITHOUT NEUTRAL")
 print("=" * 60)
-print(f"   Model    : LSTM Neural Network")
-print(f"   Classes  : Positive / Negative only")
-print(f"   Accuracy : {accuracy:.2f}%")
-print(f"   Training : {train_time:.1f} seconds")
+print()
+print(f"   Model         : LSTM Neural Network")
+print(f"   Dataset       : IMDB Movie Reviews")
+print(f"   Total Reviews : {len(df_balanced)}")
+print(f"   Training Size : {len(X_train)}")
+print(f"   Testing Size  : {len(X_test)}")
+print(f"   Accuracy      : {accuracy:.2f}%")
+print(f"   Training Time : {train_time:.1f} seconds")
 print()
 print("   Output Files:")
-print("   📊 lstm_no_neutral_graph.png")
-print("   📄 lstm_no_neutral_results.csv")
+print("   lstm_no_neutral_graph.png   - Visualizations")
+print("   lstm_no_neutral_results.csv - Full results")
 print("=" * 60)
