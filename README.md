@@ -40,6 +40,7 @@ import re
 import random
 import time
 import warnings
+import pickle
 
 from collections             import Counter
 from sklearn.metrics         import (classification_report,
@@ -62,13 +63,11 @@ from tensorflow.keras.callbacks      import (EarlyStopping,
 
 warnings.filterwarnings('ignore')
 
-# Reproducibility
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
 
-# Hyperparameters
 MAX_WORDS  = 20000
 MAX_LEN    = 200
 EMBED_DIM  = 128
@@ -248,19 +247,22 @@ print("   'bad film'   -> [67, 89]")
 print()
 
 tokenizer = Tokenizer(
-    num_words  = MAX_WORDS,
-    oov_token  = "<OOV>"
+    num_words = MAX_WORDS,
+    oov_token = "<OOV>"
 )
 tokenizer.fit_on_texts(df_balanced['clean'])
 
 X = tokenizer.texts_to_sequences(df_balanced['clean'])
 X = pad_sequences(
     X,
-    maxlen    = MAX_LEN,
-    padding   = 'post',
+    maxlen     = MAX_LEN,
+    padding    = 'post',
     truncating = 'post'
 )
 y = df_balanced['label'].values
+
+# Save tokenizer
+pickle.dump(tokenizer, open('tokenizer.pkl', 'wb'))
 
 print(f"Tokenization Settings:")
 print(f"   Vocabulary size  : {MAX_WORDS:,}")
@@ -269,6 +271,7 @@ print(f"   Max length       : {MAX_LEN}")
 print(f"   Input shape      : {X.shape}")
 print()
 print("[OK] STEP 7 - Tokenization complete!")
+print("[OK] Tokenizer saved as tokenizer.pkl")
 print()
 
 
@@ -287,6 +290,9 @@ X_train = X[:split]
 X_test  = X[split:]
 y_train = y[:split]
 y_test  = y[split:]
+
+# Convert to list to avoid numpy scalar issues
+y_test_list = y_test.tolist()
 
 print(f"Data Split:")
 print(f"   Training : {len(X_train):,} reviews (80%)")
@@ -369,7 +375,6 @@ print("Training started...")
 print("Watch live accuracy and loss below:")
 print()
 
-# Callbacks
 early_stop = EarlyStopping(
     monitor              = 'val_loss',
     patience             = 3,
@@ -379,9 +384,9 @@ early_stop = EarlyStopping(
 
 checkpoint = ModelCheckpoint(
     'best_bilstm_model.h5',
-    monitor   = 'val_accuracy',
+    monitor        = 'val_accuracy',
     save_best_only = True,
-    verbose   = 1
+    verbose        = 1
 )
 
 reduce_lr = ReduceLROnPlateau(
@@ -455,7 +460,7 @@ def predict_sentiment(text):
                    padding    = 'post',
                    truncating = 'post'
                )
-    prob = model.predict(padded, verbose=0)[0][0]
+    prob = float(model.predict(padded, verbose=0)[0][0])
 
     if prob >= 0.65:
         return "Positive", round(prob * 100, 2)
@@ -494,7 +499,7 @@ print("=" * 65)
 
 for rank, idx in enumerate(sample_indices, 1):
     review    = df_balanced['review'].iloc[split + idx]
-    actual    = idx2label[int(y_test[idx])]
+    actual    = idx2label[y_test_list[idx]]
     sentiment, confidence = predict_sentiment(review)
     bar       = "#" * int(confidence // 5)
 
@@ -566,7 +571,7 @@ axes[0, 0].set_ylim(50, 100)
 axes[0, 0].legend()
 axes[0, 0].grid(alpha=0.3)
 
-# Graph 2 - Training Loss
+# Graph 2 - Training vs Validation Loss
 axes[0, 1].plot(
     epochs_range,
     history.history['loss'],
@@ -579,8 +584,10 @@ axes[0, 1].plot(
     's--', label='Val Loss',
     color='#F5A623', linewidth=2, markersize=5
 )
-axes[0, 1].set_title('Training vs Validation Loss',
-                      fontweight='bold')
+axes[0, 1].set_title(
+    'Training vs Validation Loss',
+    fontweight='bold'
+)
 axes[0, 1].set_xlabel('Epoch')
 axes[0, 1].set_ylabel('Loss')
 axes[0, 1].legend()
@@ -599,8 +606,8 @@ axes[0, 2].set_xlabel('Predicted')
 axes[0, 2].set_ylabel('Actual')
 
 # Graph 4 - Predicted Distribution
-pos_c = (y_pred == 1).sum()
-neg_c = (y_pred == 0).sum()
+pos_c = int((y_pred == 1).sum())
+neg_c = int((y_pred == 0).sum())
 axes[1, 0].pie(
     [pos_c, neg_c],
     labels     = [f'Positive\n{pos_c}',
@@ -615,12 +622,15 @@ axes[1, 0].set_title(
 )
 
 # Graph 5 - Confidence Distribution
-confidences = [
-    round(float(p) * 100, 2)
-    if float(p) >= 0.5
-    else round((1 - float(p)) * 100, 2)
-    for p in y_pred_prob
-]
+# Fix: convert properly to float
+confidences = []
+for p in y_pred_prob.flatten():
+    p_val = float(p)
+    if p_val >= 0.5:
+        confidences.append(round(p_val * 100, 2))
+    else:
+        confidences.append(round((1 - p_val) * 100, 2))
+
 axes[1, 1].hist(
     confidences, bins=20,
     color='#6366f1', edgecolor='white'
@@ -696,11 +706,14 @@ print("[OK] Model saved as bilstm_tf_model.h5")
 print()
 
 results_df = pd.DataFrame({
-    'Actual Sentiment'   : [idx2label[int(l)] for l in y_test],
+    'Actual Sentiment'   : [idx2label[l] for l in y_test_list],
     'Predicted Sentiment': [idx2label[int(p)] for p in y_pred],
     'Confidence'         : confidences,
     'Correct'            : ['YES' if a == p else 'NO'
-                            for a, p in zip(y_test, y_pred)]
+                            for a, p in zip(
+                                y_test_list,
+                                y_pred.tolist()
+                            )]
 })
 results_df.to_csv('bilstm_tf_results.csv', index=False)
 print("[OK] Results saved to bilstm_tf_results.csv")
@@ -741,4 +754,5 @@ print("   bilstm_tf_graph.png    - 6 Visualizations")
 print("   bilstm_tf_results.csv  - Full results")
 print("   bilstm_tf_model.h5     - Saved model")
 print("   best_bilstm_model.h5   - Best model weights")
+print("   tokenizer.pkl          - Saved tokenizer")
 print("=" * 65)
