@@ -1,105 +1,67 @@
 # ============================================================
-# SENTIMENTIQ - EXTERNAL CLIENT FEEDBACK ANALYSIS
-# Dataset  : External_Client_Feedback_Balanced.csv
-# Model    : Bidirectional LSTM (TensorFlow)
-# Classes  : Positive / Negative / Neutral (3 classes)
+# SENTIMENTIQ - PREDICT ON CLIENT FEEDBACK
+# Loads saved IMDB trained model
+# Predicts on External_Client_Feedback_Balanced.csv
+# Shows CSAT% DSAT% NPS% and sample comments
 # ============================================================
 
 import ssl
 import os
 
 ssl._create_default_https_context = ssl._create_unverified_context
-os.environ['CURL_CA_BUNDLE']            = ''
-os.environ['REQUESTS_CA_BUNDLE']        = ''
-os.environ['PYTHONHTTPSVERIFY']         = '0'
-os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
-os.environ['TF_CPP_MIN_LOG_LEVEL']      = '2'
-
-
-
-
-# ============================================================
-# STEP 1 - INSTALLING DEPENDENCIES
-# ============================================================
-# pip install tensorflow keras pandas numpy matplotlib
-#     seaborn scikit-learn --trusted-host pypi.org
-#     --trusted-host files.pythonhosted.org
-
-
-
-
-# ============================================================
-# STEP 2 - IMPORTING LIBRARIES
-# ============================================================
-import pandas                as pd
-import numpy                 as np
-import matplotlib.pyplot     as plt
-import seaborn               as sns
-import re
-import random
-import time
-import warnings
-import pickle
-
-from sklearn.metrics         import (classification_report,
-                                     confusion_matrix,
-                                     accuracy_score)
+os.environ['CURL_CA_BUNDLE']       = ''
+os.environ['REQUESTS_CA_BUNDLE']   = ''
+os.environ['PYTHONHTTPSVERIFY']    = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import tensorflow as tf
-from tensorflow.keras.models         import Sequential
-from tensorflow.keras.layers         import (Embedding,
-                                             Bidirectional,
-                                             LSTM, Dense,
-                                             Dropout,
-                                             SpatialDropout1D)
-from tensorflow.keras.preprocessing.text     import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.callbacks      import (EarlyStopping,
-                                             ModelCheckpoint,
-                                             ReduceLROnPlateau)
+import pandas            as pd
+import numpy             as np
+import matplotlib.pyplot as plt
+import seaborn           as sns
+import pickle
+import re
+import time
+import warnings
 
 warnings.filterwarnings('ignore')
 
-SEED       = 42
-random.seed(SEED)
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
-
-MAX_WORDS  = 20000
-MAX_LEN    = 200
-EMBED_DIM  = 128
-LSTM_UNITS = 128
-NUM_EPOCHS = 10
-BATCH_SIZE = 64
-LR         = 0.001
-
-# Label mapping
-label2idx = {'Negative': 0, 'Neutral': 1, 'Positive': 2}
-idx2label = {0: 'Negative', 1: 'Neutral',  2: 'Positive'}
+MAX_LEN   = 200
 
 print("=" * 65)
-print("   SENTIMENTIQ - EXTERNAL CLIENT FEEDBACK ANALYSIS")
-print("   3 Classes: Positive / Neutral / Negative")
+print("   SENTIMENTIQ - CLIENT FEEDBACK ANALYSIS")
+print("   Using IMDB trained model")
 print("=" * 65)
-print()
-print(f"   TensorFlow : {tf.__version__}")
-print(f"   MAX_WORDS  : {MAX_WORDS:,}")
-print(f"   MAX_LEN    : {MAX_LEN}")
-print(f"   EPOCHS     : {NUM_EPOCHS}")
-print(f"   BATCH_SIZE : {BATCH_SIZE}")
-print(f"   Classes    : Negative=0 | Neutral=1 | Positive=2")
-print()
-print("[OK] STEP 2 - Libraries imported!")
 print()
 
 
 
 
 # ============================================================
-# STEP 3 - LOADING DATASET
+# STEP 1 - LOAD SAVED MODEL
 # ============================================================
 print("=" * 65)
-print("   STEP 3 - LOADING DATASET")
+print("   STEP 1 - LOADING SAVED MODEL")
+print("=" * 65)
+print()
+
+print("Loading saved model...")
+model     = tf.keras.models.load_model('best_bilstm_model.h5')
+tokenizer = pickle.load(open('tokenizer.pkl', 'rb'))
+
+print("[OK] Model loaded!")
+print("[OK] Tokenizer loaded!")
+print()
+
+
+
+
+# ============================================================
+# STEP 2 - LOAD CLIENT FEEDBACK DATASET
+# ============================================================
+print("=" * 65)
+print("   STEP 2 - LOADING CLIENT FEEDBACK DATASET")
 print("=" * 65)
 print()
 
@@ -113,23 +75,20 @@ print()
 print("First 5 feedbacks:")
 print("-" * 65)
 for i in range(5):
-    print(f"Company   : {df['Client_Company'].iloc[i]}")
-    print(f"Industry  : {df['Industry'].iloc[i]}")
-    print(f"Feedback  : {df['Client_Feedback'].iloc[i][:100]}...")
-    print(f"Rating    : {df['Star_Rating'].iloc[i]}")
-    print(f"Sentiment : {df['Predicted_Sentiment'].iloc[i]}")
-    print(f"CSAT      : {df['CSAT'].iloc[i]} | DSAT: {df['DSAT'].iloc[i]}")
-    print(f"NPS       : {df['NPS_Score'].iloc[i]} ({df['NPS_Category'].iloc[i]})")
+    print(f"Company  : {df['Client_Company'].iloc[i]}")
+    print(f"Industry : {df['Industry'].iloc[i]}")
+    print(f"Feedback : {df['Client_Feedback'].iloc[i][:100]}...")
+    print(f"CSAT     : {df['CSAT'].iloc[i]} | DSAT: {df['DSAT'].iloc[i]}")
     print()
 
 
 
 
 # ============================================================
-# STEP 4 - DATASET ANALYSIS
+# STEP 3 - SHOW DATASET PERCENTAGES
 # ============================================================
 print("=" * 65)
-print("   STEP 4 - DATASET ANALYSIS")
+print("   STEP 3 - DATASET PERCENTAGES")
 print("=" * 65)
 print()
 
@@ -139,56 +98,45 @@ neg_count  = len(df[df['Predicted_Sentiment']=='Negative'])
 neu_count  = len(df[df['Predicted_Sentiment']=='Neutral'])
 csat_count = int(df['CSAT'].sum())
 dsat_count = int(df['DSAT'].sum())
+sla_breach = len(df[df['SLA_Breached']=='Yes'])
 
-print(f"Dataset Shape : {df.shape}")
-print()
-print(f"SENTIMENT DISTRIBUTION:")
+print(f"FEEDBACK SENTIMENT:")
 print(f"   Positive : {pos_count:,} ({pos_count/total*100:.1f}%)")
 print(f"   Negative : {neg_count:,} ({neg_count/total*100:.1f}%)")
 print(f"   Neutral  : {neu_count:,} ({neu_count/total*100:.1f}%)")
 print()
 print(f"CSAT (Satisfied Clients):")
-print(f"   CSAT=1   : {csat_count:,} ({csat_count/total*100:.1f}%)")
-print(f"   CSAT=0   : {total-csat_count:,} ({(total-csat_count)/total*100:.1f}%)")
+print(f"   CSAT = 1 : {csat_count:,} ({csat_count/total*100:.1f}%)")
+print(f"   CSAT = 0 : {total-csat_count:,} ({(total-csat_count)/total*100:.1f}%)")
 print()
 print(f"DSAT (Dissatisfied Clients):")
-print(f"   DSAT=1   : {dsat_count:,} ({dsat_count/total*100:.1f}%)")
-print(f"   DSAT=0   : {total-dsat_count:,} ({(total-dsat_count)/total*100:.1f}%)")
+print(f"   DSAT = 1 : {dsat_count:,} ({dsat_count/total*100:.1f}%)")
+print(f"   DSAT = 0 : {total-dsat_count:,} ({(total-dsat_count)/total*100:.1f}%)")
 print()
-
-sla_breach = len(df[df['SLA_Breached']=='Yes'])
 print(f"SLA BREACH:")
 print(f"   Breached     : {sla_breach:,} ({sla_breach/total*100:.1f}%)")
 print(f"   Not Breached : {total-sla_breach:,} ({(total-sla_breach)/total*100:.1f}%)")
 print()
-
 print(f"NPS DISTRIBUTION:")
 for sent in ['Positive','Negative','Neutral']:
-    avg = df[df['Predicted_Sentiment']==sent]['NPS_Score'].mean()
+    sub = df[df['Predicted_Sentiment']==sent]
+    avg = sub['NPS_Score'].mean()
     print(f"   {sent:10s} → Avg NPS: {avg:.1f}")
-    cats = df[df['Predicted_Sentiment']==sent]\
-        ['NPS_Category'].value_counts()
-    for cat, cnt in cats.items():
-        pct = cnt/len(df[df['Predicted_Sentiment']==sent])*100
+    for cat, cnt in sub['NPS_Category'].value_counts().items():
+        pct = cnt/len(sub)*100
         print(f"      {cat:12s}: {cnt:,} ({pct:.1f}%)")
 print()
-
-print("RATING DISTRIBUTION:")
-for r, c in df['Star_Rating'].value_counts().sort_index().items():
-    bar = "#" * int(c/150)
-    print(f"   {r} star : {c:,} {bar}")
-print()
-print("[OK] STEP 4 - Analysis complete!")
+print("[OK] STEP 3 - Percentages shown!")
 print()
 
 
 
 
 # ============================================================
-# STEP 5 - SHOW SAMPLE COMMENTS
+# STEP 4 - SHOW SAMPLE COMMENTS
 # ============================================================
 print("=" * 65)
-print("   STEP 5 - SAMPLE COMMENTS")
+print("   STEP 4 - SAMPLE COMMENTS")
 print("=" * 65)
 print()
 
@@ -196,23 +144,23 @@ for sentiment in ['Positive','Neutral','Negative']:
     print(f"{sentiment.upper()} FEEDBACK SAMPLES (5):")
     print("-" * 65)
     samples = df[df['Predicted_Sentiment']==sentiment]\
-        ['Client_Feedback'].sample(5, random_state=SEED).values
+        ['Client_Feedback'].sample(5, random_state=42).values
     for i, fb in enumerate(samples, 1):
         print(f"[{i}] {fb[:120]}...")
         print()
     print()
 
-print("[OK] STEP 5 - Sample comments shown!")
+print("[OK] STEP 4 - Sample comments shown!")
 print()
 
 
 
 
 # ============================================================
-# STEP 6 - PREPROCESSING TEXT
+# STEP 5 - HELPER FUNCTIONS
 # ============================================================
 print("=" * 65)
-print("   STEP 6 - PREPROCESSING TEXT")
+print("   STEP 5 - SETTING UP PREDICTION FUNCTION")
 print("=" * 65)
 print()
 
@@ -224,235 +172,6 @@ def preprocess(text):
     text = re.sub(r'\s+',           ' ', text).strip()
     return text
 
-df['clean'] = df['Client_Feedback'].apply(preprocess)
-
-print("Before:", df['Client_Feedback'].iloc[0][:100])
-print("After :", df['clean'].iloc[0][:100])
-print()
-print("[OK] STEP 6 - Preprocessing complete!")
-print()
-
-
-
-
-# ============================================================
-# STEP 7 - PREPARE LABELS (3 classes)
-# ============================================================
-print("=" * 65)
-print("   STEP 7 - PREPARING LABELS")
-print("=" * 65)
-print()
-
-print("Label mapping:")
-print("   Negative → 0  (CSAT=0 DSAT=1)")
-print("   Neutral  → 1  (CSAT=0 DSAT=0)")
-print("   Positive → 2  (CSAT=1 DSAT=0)")
-print()
-
-df['label'] = df['Predicted_Sentiment'].map(label2idx)
-
-print(f"Label 0 (Negative) : {len(df[df['label']==0]):,}")
-print(f"Label 1 (Neutral)  : {len(df[df['label']==1]):,}")
-print(f"Label 2 (Positive) : {len(df[df['label']==2]):,}")
-print()
-print("[OK] STEP 7 - Labels ready!")
-print()
-
-
-
-
-# ============================================================
-# STEP 8 - TOKENIZATION
-# ============================================================
-print("=" * 65)
-print("   STEP 8 - TOKENIZATION")
-print("=" * 65)
-print()
-
-tokenizer = Tokenizer(
-    num_words = MAX_WORDS,
-    oov_token = "<OOV>"
-)
-tokenizer.fit_on_texts(df['clean'])
-
-X = tokenizer.texts_to_sequences(df['clean'])
-X = pad_sequences(
-    X,
-    maxlen     = MAX_LEN,
-    padding    = 'post',
-    truncating = 'post'
-)
-y = df['label'].values
-
-pickle.dump(tokenizer, open('tokenizer.pkl', 'wb'))
-
-print(f"Vocabulary : {len(tokenizer.word_index):,} words")
-print(f"Shape      : {X.shape}")
-print()
-print("[OK] STEP 8 - Tokenizer saved!")
-print()
-
-
-
-
-# ============================================================
-# STEP 9 - SPLITTING DATA
-# ============================================================
-print("=" * 65)
-print("   STEP 9 - SPLITTING DATA")
-print("=" * 65)
-print()
-
-split       = int(0.8 * len(X))
-X_train     = X[:split]
-X_test      = X[split:]
-y_train     = y[:split]
-y_test      = y[split:]
-y_test_list = y_test.tolist()
-
-print(f"Training : {len(X_train):,} feedbacks (80%)")
-print(f"Testing  : {len(X_test):,}  feedbacks (20%)")
-print()
-print("[OK] STEP 9 - Split complete!")
-print()
-
-
-
-
-# ============================================================
-# STEP 10 - BUILDING BILSTM MODEL (3 classes)
-# ============================================================
-print("=" * 65)
-print("   STEP 10 - BUILDING BILSTM MODEL")
-print("=" * 65)
-print()
-
-print("3 Class Model:")
-print("   Output layer  : Dense(3) with softmax")
-print("   Loss function : sparse_categorical_crossentropy")
-print()
-
-model = Sequential([
-    Embedding(
-        input_dim    = MAX_WORDS,
-        output_dim   = EMBED_DIM,
-        input_length = MAX_LEN
-    ),
-    SpatialDropout1D(0.3),
-    Bidirectional(LSTM(
-        LSTM_UNITS,
-        dropout           = 0.2,
-        recurrent_dropout = 0.2,
-        return_sequences  = True
-    )),
-    Bidirectional(LSTM(
-        64,
-        dropout           = 0.2,
-        recurrent_dropout = 0.2
-    )),
-    Dense(64, activation='relu'),
-    Dropout(0.4),
-    Dense(3,  activation='softmax')  # 3 classes!
-])
-
-model.compile(
-    optimizer = tf.keras.optimizers.Adam(learning_rate=LR),
-    loss      = 'sparse_categorical_crossentropy',  # 3 classes!
-    metrics   = ['accuracy']
-)
-
-model.summary()
-print()
-print("[OK] STEP 10 - Model built!")
-print()
-
-
-
-
-# ============================================================
-# STEP 11 - TRAINING
-# ============================================================
-print("=" * 65)
-print("   STEP 11 - TRAINING BILSTM MODEL")
-print("=" * 65)
-print()
-print("Training on External Client Feedback...")
-print("3 Classes: Positive / Neutral / Negative")
-print("Watch live progress below:")
-print()
-
-early_stop = EarlyStopping(
-    monitor              = 'val_loss',
-    patience             = 3,
-    restore_best_weights = True,
-    verbose              = 1
-)
-checkpoint = ModelCheckpoint(
-    'best_bilstm_model.h5',
-    monitor        = 'val_accuracy',
-    save_best_only = True,
-    verbose        = 1
-)
-reduce_lr  = ReduceLROnPlateau(
-    monitor  = 'val_loss',
-    factor   = 0.5,
-    patience = 2,
-    verbose  = 1
-)
-
-start_time = time.time()
-
-history = model.fit(
-    X_train, y_train,
-    epochs           = NUM_EPOCHS,
-    batch_size       = BATCH_SIZE,
-    validation_split = 0.2,
-    callbacks        = [early_stop, checkpoint, reduce_lr],
-    verbose          = 1
-)
-
-train_time = time.time() - start_time
-print()
-print(f"[OK] Training complete in {train_time:.1f}s!")
-print()
-
-
-
-
-# ============================================================
-# STEP 12 - EVALUATING MODEL
-# ============================================================
-print("=" * 65)
-print("   STEP 12 - EVALUATING MODEL")
-print("=" * 65)
-print()
-
-y_pred_prob = model.predict(X_test, verbose=0)
-y_pred      = np.argmax(y_pred_prob, axis=1)  # 3 classes!
-accuracy    = accuracy_score(y_test, y_pred) * 100
-
-print(f"Model Accuracy : {accuracy:.2f}%")
-print()
-print("Classification Report:")
-print("-" * 65)
-print(classification_report(
-    y_test, y_pred,
-    target_names=['Negative','Neutral','Positive']
-))
-print("[OK] STEP 12 - Evaluation complete!")
-print()
-
-
-
-
-# ============================================================
-# STEP 13 - PREDICTION FUNCTION (3 classes)
-# ============================================================
-print("=" * 65)
-print("   STEP 13 - PREDICTION FUNCTION")
-print("=" * 65)
-print()
-
 def predict_sentiment(text):
     clean    = preprocess(text)
     sequence = tokenizer.texts_to_sequences([clean])
@@ -460,49 +179,132 @@ def predict_sentiment(text):
         sequence, maxlen=MAX_LEN,
         padding='post', truncating='post'
     )
-    probs      = model.predict(padded, verbose=0)[0]
-    pred_class = int(np.argmax(probs))
-    confidence = round(float(probs[pred_class]) * 100, 2)
-    sentiment  = idx2label[pred_class]
+    prob = float(model.predict(padded, verbose=0)[0][0])
 
-    # CSAT DSAT binary linked to sentiment
-    if sentiment == 'Positive':
+    if prob >= 0.65:
+        sentiment  = 'Positive'
+        confidence = round(prob * 100, 2)
         csat, dsat = 1, 0
-        nps        = random.randint(7, 10)
-        nps_cat    = 'Promoter' if nps >= 9 else 'Passive'
-    elif sentiment == 'Negative':
+        nps        = 9
+        nps_cat    = 'Promoter'
+    elif prob <= 0.35:
+        sentiment  = 'Negative'
+        confidence = round((1-prob) * 100, 2)
         csat, dsat = 0, 1
-        nps        = random.randint(0, 6)
+        nps        = 2
         nps_cat    = 'Detractor'
     else:
+        sentiment  = 'Neutral'
+        confidence = round(max(prob, 1-prob) * 100, 2)
         csat, dsat = 0, 0
-        nps        = random.randint(5, 7)
+        nps        = 6
         nps_cat    = 'Passive'
 
     return sentiment, confidence, csat, dsat, nps, nps_cat
 
 print("Prediction Logic:")
-print("   Positive → class 2 | CSAT=1 DSAT=0 | NPS 7-10")
-print("   Neutral  → class 1 | CSAT=0 DSAT=0 | NPS 5-7")
-print("   Negative → class 0 | CSAT=0 DSAT=1 | NPS 0-6")
+print("   prob >= 0.65 → Positive | CSAT=1 DSAT=0 | NPS 9")
+print("   prob <= 0.35 → Negative | CSAT=0 DSAT=1 | NPS 2")
+print("   in between   → Neutral  | CSAT=0 DSAT=0 | NPS 6")
 print()
-print("[OK] STEP 13 - Prediction function ready!")
+print("[OK] STEP 5 - Functions ready!")
 print()
 
 
 
 
 # ============================================================
-# STEP 14 - SAMPLE RESULTS (50 feedbacks)
+# STEP 6 - PREDICT ON ALL CLIENT FEEDBACKS
 # ============================================================
 print("=" * 65)
-print("   STEP 14 - SAMPLE RESULTS")
+print("   STEP 6 - PREDICTING ON ALL FEEDBACKS")
+print("=" * 65)
+print()
+print(f"Predicting on {total:,} feedbacks...")
+print()
+
+sentiments  = []
+confidences = []
+csat_preds  = []
+dsat_preds  = []
+start       = time.time()
+
+for i, feedback in enumerate(df['Client_Feedback']):
+    sent, conf, csat, dsat, nps, nps_cat = predict_sentiment(
+        str(feedback)
+    )
+    sentiments.append(sent)
+    confidences.append(conf)
+    csat_preds.append(csat)
+    dsat_preds.append(dsat)
+
+    if (i+1) % 500 == 0 or (i+1) == total:
+        elapsed = time.time() - start
+        print(f"   {i+1:,}/{total:,} "
+              f"({(i+1)/total*100:.1f}%) | "
+              f"Time: {elapsed:.0f}s")
+
+elapsed = time.time() - start
+print()
+print(f"[OK] Done in {elapsed:.1f}s!")
+print()
+
+
+
+
+# ============================================================
+# STEP 7 - COMPARE PREDICTIONS VS ACTUAL
+# ============================================================
+print("=" * 65)
+print("   STEP 7 - PREDICTIONS VS ACTUAL")
 print("=" * 65)
 print()
 
-sample      = df.sample(50, random_state=SEED).reset_index(drop=True)
-correct     = 0
-wrong       = 0
+correct = sum(
+    1 for pred, actual in
+    zip(sentiments, df['Predicted_Sentiment'])
+    if pred == actual
+)
+accuracy  = correct / total * 100
+pred_pos  = sentiments.count('Positive')
+pred_neg  = sentiments.count('Negative')
+pred_neu  = sentiments.count('Neutral')
+pred_csat = sum(csat_preds)
+pred_dsat = sum(dsat_preds)
+
+print(f"ACTUAL (from dataset):")
+print(f"   Positive : {pos_count:,} ({pos_count/total*100:.1f}%)")
+print(f"   Negative : {neg_count:,} ({neg_count/total*100:.1f}%)")
+print(f"   Neutral  : {neu_count:,} ({neu_count/total*100:.1f}%)")
+print(f"   CSAT%    : {csat_count/total*100:.1f}%")
+print(f"   DSAT%    : {dsat_count/total*100:.1f}%")
+print()
+print(f"PREDICTED (by model):")
+print(f"   Positive : {pred_pos:,} ({pred_pos/total*100:.1f}%)")
+print(f"   Negative : {pred_neg:,} ({pred_neg/total*100:.1f}%)")
+print(f"   Neutral  : {pred_neu:,} ({pred_neu/total*100:.1f}%)")
+print(f"   CSAT%    : {pred_csat/total*100:.1f}%")
+print(f"   DSAT%    : {pred_dsat/total*100:.1f}%")
+print()
+print(f"Model Accuracy : {accuracy:.1f}%")
+print()
+print("[OK] STEP 7 - Comparison done!")
+print()
+
+
+
+
+# ============================================================
+# STEP 8 - SAMPLE RESULTS (50 feedbacks)
+# ============================================================
+print("=" * 65)
+print("   STEP 8 - SAMPLE RESULTS (50 feedbacks)")
+print("=" * 65)
+print()
+
+sample    = df.sample(50, random_state=42).reset_index(drop=True)
+correct_s = 0
+wrong_s   = 0
 
 print("50 predictions with CSAT DSAT NPS:")
 print("=" * 65)
@@ -521,47 +323,46 @@ for i in range(50):
     bar = "#" * int(conf // 5)
 
     if sent == actual_sent:
-        correct += 1
+        correct_s += 1
         match = "[CORRECT]"
     else:
-        wrong += 1
+        wrong_s += 1
         match = "[WRONG]  "
 
     print(f"[{i+1:2d}] Company   : {company} ({industry})")
     print(f"     Feedback  : {fb[:80]}...")
     print(f"     Predicted : {sent:10s} | {bar} {conf}%")
     print(f"     CSAT:{csat} DSAT:{dsat} | NPS:{nps} {nps_cat}")
-    print(f"     Actual    : {actual_sent:10s} | CSAT:{actual_csat} DSAT:{actual_dsat} | NPS:{actual_nps} {actual_cat} | {match}")
+    print(f"     Actual    : {actual_sent:10s} | "
+          f"CSAT:{actual_csat} DSAT:{actual_dsat} | "
+          f"NPS:{actual_nps} {actual_cat} | {match}")
     print("-" * 65)
 
 print()
 print(f"Sample Summary:")
-print(f"   Total   : 50")
-print(f"   Correct : {correct}  ({correct/50*100:.1f}%)")
-print(f"   Wrong   : {wrong}   ({wrong/50*100:.1f}%)")
+print(f"   Correct : {correct_s}/50 ({correct_s/50*100:.1f}%)")
+print(f"   Wrong   : {wrong_s}/50  ({wrong_s/50*100:.1f}%)")
 print()
-print("[OK] STEP 14 - Sample results done!")
+print("[OK] STEP 8 - Sample results done!")
 print()
 
 
 
 
 # ============================================================
-# STEP 15 - BUSINESS INSIGHTS
+# STEP 9 - BUSINESS INSIGHTS
 # ============================================================
 print("=" * 65)
-print("   STEP 15 - BUSINESS INSIGHTS")
+print("   STEP 9 - BUSINESS INSIGHTS")
 print("=" * 65)
 print()
 
-print(f"Overall Summary:")
-print(f"   Total Feedbacks : {total:,}")
-print(f"   Positive        : {pos_count:,} ({pos_count/total*100:.1f}%)")
-print(f"   Negative        : {neg_count:,} ({neg_count/total*100:.1f}%)")
-print(f"   Neutral         : {neu_count:,} ({neu_count/total*100:.1f}%)")
-print(f"   CSAT%           : {csat_count/total*100:.1f}%")
-print(f"   DSAT%           : {dsat_count/total*100:.1f}%")
-print(f"   SLA Breach%     : {sla_breach/total*100:.1f}%")
+print(f"Overall:")
+print(f"   Total Feedbacks  : {total:,}")
+print(f"   CSAT%            : {csat_count/total*100:.1f}%")
+print(f"   DSAT%            : {dsat_count/total*100:.1f}%")
+print(f"   SLA Breach%      : {sla_breach/total*100:.1f}%")
+print(f"   Model Accuracy   : {accuracy:.1f}%")
 print()
 
 print("CSAT% by Industry:")
@@ -589,49 +390,28 @@ for proj, val in df.groupby('Project_Type')['CSAT']\
         .mean().sort_values(ascending=False).items():
     print(f"   {proj:35s} : {val*100:.1f}%")
 print()
-print("[OK] STEP 15 - Business insights done!")
+print("[OK] STEP 9 - Business insights done!")
 print()
 
 
 
 
 # ============================================================
-# STEP 16 - VISUALIZATIONS
+# STEP 10 - VISUALIZATIONS
 # ============================================================
 print("=" * 65)
-print("   STEP 16 - GENERATING VISUALIZATIONS")
+print("   STEP 10 - GENERATING VISUALIZATIONS")
 print("=" * 65)
 print()
-
-epochs_range = range(1, len(history.history['accuracy'])+1)
 
 fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 fig.suptitle(
-    'SentimentIQ - External Client Feedback Analysis',
+    'SentimentIQ - Client Feedback Analysis',
     fontsize=16, fontweight='bold'
 )
 
-# Graph 1 - Training Accuracy
-axes[0,0].plot(
-    epochs_range,
-    [a*100 for a in history.history['accuracy']],
-    'o-', label='Train', color='#1D9E75', linewidth=2
-)
-axes[0,0].plot(
-    epochs_range,
-    [a*100 for a in history.history['val_accuracy']],
-    's--', label='Val', color='#D85A30', linewidth=2
-)
-axes[0,0].set_title('Training vs Validation Accuracy',
-                     fontweight='bold')
-axes[0,0].set_xlabel('Epoch')
-axes[0,0].set_ylabel('Accuracy (%)')
-axes[0,0].set_ylim(0, 100)
-axes[0,0].legend()
-axes[0,0].grid(alpha=0.3)
-
-# Graph 2 - Sentiment Distribution
-axes[0,1].pie(
+# Graph 1 - Actual Sentiment
+axes[0,0].pie(
     [pos_count, neg_count, neu_count],
     labels=[f'Positive\n{pos_count:,}',
             f'Negative\n{neg_count:,}',
@@ -639,62 +419,76 @@ axes[0,1].pie(
     colors=['#22c55e','#ef4444','#3b82f6'],
     autopct='%1.1f%%', startangle=90
 )
-axes[0,1].set_title('Sentiment Distribution',
+axes[0,0].set_title('Actual Sentiment',
                      fontweight='bold')
 
-# Graph 3 - Confusion Matrix
-cm = confusion_matrix(y_test, y_pred)
-sns.heatmap(
-    cm, annot=True, fmt='d', cmap='Blues',
-    xticklabels=['Negative','Neutral','Positive'],
-    yticklabels=['Negative','Neutral','Positive'],
-    ax=axes[0,2]
+# Graph 2 - Predicted Sentiment
+axes[0,1].pie(
+    [pred_pos, pred_neg, pred_neu],
+    labels=[f'Positive\n{pred_pos:,}',
+            f'Negative\n{pred_neg:,}',
+            f'Neutral\n{pred_neu:,}'],
+    colors=['#22c55e','#ef4444','#3b82f6'],
+    autopct='%1.1f%%', startangle=90
 )
-axes[0,2].set_title('Confusion Matrix', fontweight='bold')
-axes[0,2].set_xlabel('Predicted')
-axes[0,2].set_ylabel('Actual')
-
-# Graph 4 - CSAT DSAT Bar
-cats  = ['CSAT\n(Positive)','DSAT\n(Negative)','Neutral']
-vals  = [csat_count, dsat_count, neu_count]
-cols  = ['#22c55e','#ef4444','#3b82f6']
-bars  = axes[1,0].bar(cats, vals, color=cols)
-axes[1,0].set_title('CSAT vs DSAT vs Neutral',
+axes[0,1].set_title('Predicted Sentiment',
                      fontweight='bold')
-axes[1,0].set_ylabel('Count')
+
+# Graph 3 - CSAT vs DSAT
+cats = ['CSAT\n(Satisfied)',
+        'DSAT\n(Dissatisfied)',
+        'Neutral']
+vals = [csat_count, dsat_count, neu_count]
+cols = ['#22c55e','#ef4444','#3b82f6']
+bars = axes[0,2].bar(cats, vals, color=cols)
+axes[0,2].set_title('CSAT vs DSAT vs Neutral',
+                     fontweight='bold')
+axes[0,2].set_ylabel('Count')
 for bar, val in zip(bars, vals):
-    axes[1,0].text(
+    axes[0,2].text(
         bar.get_x()+bar.get_width()/2,
-        bar.get_height()+50,
-        f'{val:,}', ha='center', fontweight='bold'
+        bar.get_height()+10,
+        f'{val:,}',
+        ha='center', fontweight='bold'
     )
 
-# Graph 5 - NPS by Sentiment
+# Graph 4 - CSAT by Industry
+ind_csat = df.groupby('Industry')['CSAT'].mean()*100
+ind_csat.sort_values().plot(
+    kind='barh', ax=axes[1,0], color='#22c55e'
+)
+axes[1,0].set_title('CSAT% by Industry',
+                     fontweight='bold')
+axes[1,0].set_xlabel('CSAT %')
+
+# Graph 5 - DSAT by Industry
+ind_dsat = df.groupby('Industry')['DSAT'].mean()*100
+ind_dsat.sort_values(ascending=False).plot(
+    kind='bar', ax=axes[1,1], color='#ef4444'
+)
+axes[1,1].set_title('DSAT% by Industry',
+                     fontweight='bold')
+axes[1,1].set_ylabel('DSAT %')
+axes[1,1].tick_params(axis='x', rotation=45)
+
+# Graph 6 - NPS Distribution
 nps_data = df.groupby(
     ['Predicted_Sentiment','NPS_Category']
 ).size().unstack(fill_value=0)
 nps_data.plot(
-    kind='bar', ax=axes[1,1],
+    kind='bar', ax=axes[1,2],
     color=['#ef4444','#22c55e','#eab308']
 )
-axes[1,1].set_title('NPS Category by Sentiment',
+axes[1,2].set_title('NPS by Sentiment',
                      fontweight='bold')
-axes[1,1].set_ylabel('Count')
-axes[1,1].tick_params(axis='x', rotation=0)
-axes[1,1].legend(loc='upper right')
-
-# Graph 6 - CSAT by Industry
-ind_csat = df.groupby('Industry')['CSAT'].mean()*100
-ind_csat.sort_values().plot(
-    kind='barh', ax=axes[1,2], color='#22c55e'
-)
-axes[1,2].set_title('CSAT% by Industry', fontweight='bold')
-axes[1,2].set_xlabel('CSAT %')
+axes[1,2].set_ylabel('Count')
+axes[1,2].tick_params(axis='x', rotation=0)
+axes[1,2].legend(loc='upper right')
 
 plt.tight_layout()
-plt.savefig('client_feedback_graph.png',
+plt.savefig('client_analysis_graph.png',
             dpi=150, bbox_inches='tight')
-print("[OK] Graph saved as client_feedback_graph.png")
+print("[OK] Graph saved as client_analysis_graph.png")
 plt.show()
 print()
 
@@ -702,53 +496,20 @@ print()
 
 
 # ============================================================
-# STEP 17 - SAVE MODEL AND RESULTS
+# STEP 11 - SAVE RESULTS
 # ============================================================
 print("=" * 65)
-print("   STEP 17 - SAVING MODEL AND RESULTS")
+print("   STEP 11 - SAVING RESULTS")
 print("=" * 65)
 print()
 
-model.save('bilstm_tf_model.h5')
-print("[OK] Model saved     : bilstm_tf_model.h5")
-print("[OK] Best model      : best_bilstm_model.h5")
-print("[OK] Tokenizer saved : tokenizer.pkl")
-print()
+df['Model_Sentiment'] = sentiments
+df['Confidence']      = confidences
+df['Model_CSAT']      = csat_preds
+df['Model_DSAT']      = dsat_preds
 
-# Save results
-confidences = [
-    round(float(np.max(p)) * 100, 2)
-    for p in y_pred_prob
-]
-results_df = pd.DataFrame({
-    'Actual_Sentiment'   : [idx2label[l] for l in y_test_list],
-    'Predicted_Sentiment': [idx2label[p] for p in y_pred.tolist()],
-    'Confidence'         : confidences,
-    'CSAT'               : [1 if p==2 else 0 for p in y_pred.tolist()],
-    'DSAT'               : [1 if p==0 else 0 for p in y_pred.tolist()],
-    'Correct'            : ['YES' if a==p else 'NO'
-                            for a,p in zip(
-                                y_test_list,
-                                y_pred.tolist()
-                            )]
-})
-results_df.to_csv('client_results.csv', index=False)
-print("[OK] Results saved   : client_results.csv")
-print()
-
-total_r   = len(results_df)
-correct_r = len(results_df[results_df['Correct']=='YES'])
-csat_r    = results_df['CSAT'].sum()
-dsat_r    = results_df['DSAT'].sum()
-avg_conf  = results_df['Confidence'].mean()
-
-print("Results Summary:")
-print(f"   Total Predictions : {total_r:,}")
-print(f"   Correct           : {correct_r:,}")
-print(f"   Wrong             : {total_r-correct_r:,}")
-print(f"   CSAT%             : {csat_r/total_r*100:.1f}%")
-print(f"   DSAT%             : {dsat_r/total_r*100:.1f}%")
-print(f"   Avg Confidence    : {avg_conf:.1f}%")
+df.to_csv('client_predicted_results.csv', index=False)
+print("[OK] Saved to client_predicted_results.csv")
 print()
 
 
@@ -758,9 +519,10 @@ print()
 # FINAL SUMMARY
 # ============================================================
 print("=" * 65)
-print("   SENTIMENTIQ - ANALYSIS COMPLETE")
+print("   SENTIMENTIQ - COMPLETE")
 print("=" * 65)
 print()
+print(f"   Model            : IMDB trained BiLSTM")
 print(f"   Dataset          : External_Client_Feedback_Balanced.csv")
 print(f"   Total Feedbacks  : {total:,}")
 print(f"   Positive         : {pos_count:,} ({pos_count/total*100:.1f}%)")
@@ -769,18 +531,15 @@ print(f"   Neutral          : {neu_count:,} ({neu_count/total*100:.1f}%)")
 print(f"   CSAT%            : {csat_count/total*100:.1f}%")
 print(f"   DSAT%            : {dsat_count/total*100:.1f}%")
 print(f"   SLA Breach%      : {sla_breach/total*100:.1f}%")
-print(f"   Model Accuracy   : {accuracy:.2f}%")
-print(f"   Training Time    : {train_time:.1f}s")
+print(f"   Model Accuracy   : {accuracy:.1f}%")
+print(f"   Time Taken       : {elapsed:.1f}s")
 print()
-print("   Class Labels:")
-print("   Negative → 0 | CSAT=0 DSAT=1 | NPS 0-6  Detractor")
-print("   Neutral  → 1 | CSAT=0 DSAT=0 | NPS 5-7  Passive")
-print("   Positive → 2 | CSAT=1 DSAT=0 | NPS 7-10 Promoter")
+print("   NPS Links:")
+print("   Positive → CSAT=1 DSAT=0 NPS=9 Promoter")
+print("   Negative → CSAT=0 DSAT=1 NPS=2 Detractor")
+print("   Neutral  → CSAT=0 DSAT=0 NPS=6 Passive")
 print()
 print("   Output Files:")
-print("   best_bilstm_model.h5      - Best model weights")
-print("   bilstm_tf_model.h5        - Final model")
-print("   tokenizer.pkl             - Tokenizer")
-print("   client_results.csv        - Prediction results")
-print("   client_feedback_graph.png - 6 Visualizations")
+print("   client_predicted_results.csv - Full results")
+print("   client_analysis_graph.png    - 6 Graphs")
 print("=" * 65)
