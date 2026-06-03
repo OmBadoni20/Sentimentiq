@@ -1,8 +1,8 @@
 # ============================================================
-# SENTIMENTIQ - INTERNAL EMPLOYEE FEEDBACK ANALYSIS
-# Dataset  : Internal_Feedback_WITHOUT_Scores.csv
+# SENTIMENTIQ - INTERNAL EMPLOYEE FEEDBACK WITH SCORES
+# Dataset  : Internal_Feedback_WITH_Scores.csv
 # Model    : Loads saved IMDB trained BiLSTM model
-# Classes  : Positive / Negative / Neutral
+# Purpose  : Predict AND verify against actual CSAT DSAT
 # ============================================================
 
 import ssl
@@ -30,8 +30,8 @@ warnings.filterwarnings('ignore')
 MAX_LEN = 200
 
 print("=" * 65)
-print("   SENTIMENTIQ - INTERNAL EMPLOYEE FEEDBACK")
-print("   Using saved IMDB trained BiLSTM model")
+print("   SENTIMENTIQ - INTERNAL FEEDBACK WITH SCORES")
+print("   Predict + Verify against actual CSAT DSAT")
 print("=" * 65)
 print()
 
@@ -57,28 +57,29 @@ print()
 
 
 # ============================================================
-# STEP 2 - LOAD DATASET
+# STEP 2 - LOAD DATASET WITH SCORES
 # ============================================================
 print("=" * 65)
-print("   STEP 2 - LOADING INTERNAL FEEDBACK DATASET")
+print("   STEP 2 - LOADING DATASET WITH SCORES")
 print("=" * 65)
 print()
 
-df = pd.read_csv("Internal_Feedback_WITHOUT_Scores.csv")
+df = pd.read_csv("Internal_Feedback_WITH_Scores.csv")
 
 print(f"[OK] Dataset loaded!")
 print(f"   Total rows    : {len(df):,}")
 print(f"   Total columns : {len(df.columns)}")
 print()
 
-print("First 5 feedbacks:")
+print("First 5 rows:")
 print("-" * 65)
 for i in range(5):
     print(f"Employee : {df['Employee_Name'].iloc[i]}")
     print(f"Dept     : {df['Department'].iloc[i]}")
     print(f"Issue    : {df['Issue_Category'].iloc[i]}")
-    print(f"Priority : {df['Priority'].iloc[i]}")
     print(f"Feedback : {df['Customer_Feedback'].iloc[i][:100]}...")
+    print(f"Rating   : {df['Star_Rating'].iloc[i]}")
+    print(f"CSAT     : {df['CSAT'].iloc[i]} | DSAT: {df['DSAT'].iloc[i]}")
     print(f"NPS      : {df['NPS_Score'].iloc[i]} ({df['NPS_Category'].iloc[i]})")
     print()
 
@@ -86,63 +87,86 @@ for i in range(5):
 
 
 # ============================================================
-# STEP 3 - SHOW DATASET DETAILS
+# STEP 3 - SHOW ACTUAL PERCENTAGES
 # ============================================================
 print("=" * 65)
-print("   STEP 3 - DATASET DETAILS")
+print("   STEP 3 - ACTUAL PERCENTAGES FROM DATASET")
 print("=" * 65)
 print()
 
-total      = len(df)
-sla_breach = len(df[df['SLA_Breached']=='Yes'])
+total        = len(df)
+actual_csat  = int(df['CSAT'].sum())
+actual_dsat  = int(df['DSAT'].sum())
+actual_neu   = total - actual_csat - actual_dsat
+sla_breach   = len(df[df['SLA_Breached']=='Yes'])
 
-print(f"Total Feedbacks  : {total:,}")
-print()
-print(f"NOTE: No CSAT DSAT sentiment in this file!")
-print(f"Model will predict all of these!")
+print(f"ACTUAL CSAT DSAT (from dataset):")
+print(f"   CSAT=1 (Satisfied)   : {actual_csat:,} ({actual_csat/total*100:.1f}%)")
+print(f"   DSAT=1 (Dissatisfied): {actual_dsat:,} ({actual_dsat/total*100:.1f}%)")
+print(f"   Neutral (both 0)     : {actual_neu:,}  ({actual_neu/total*100:.1f}%)")
 print()
 print(f"SLA BREACH:")
 print(f"   Breached     : {sla_breach:,} ({sla_breach/total*100:.1f}%)")
 print(f"   Not Breached : {total-sla_breach:,} ({(total-sla_breach)/total*100:.1f}%)")
 print()
 
-print(f"PRIORITY DISTRIBUTION:")
-for pri, cnt in df['Priority'].value_counts().sort_index().items():
-    bar = "#" * int(cnt/50)
-    print(f"   {pri} : {cnt:,} ({cnt/total*100:.1f}%) {bar}")
+print("RATING DISTRIBUTION:")
+for r, c in df['Star_Rating'].value_counts().sort_index().items():
+    bar = "#" * int(c/100)
+    print(f"   {r} star : {c:,} ({c/total*100:.1f}%) {bar}")
 print()
 
-print(f"DEPARTMENT DISTRIBUTION:")
-for dept, cnt in df['Department'].value_counts().items():
-    print(f"   {dept:20s} : {cnt:,}")
+print("NPS DISTRIBUTION (Actual):")
+for cat, cnt in df['NPS_Category'].value_counts().items():
+    pct = cnt/total*100
+    print(f"   {cat:12s}: {cnt:,} ({pct:.1f}%)")
 print()
-
-print(f"ISSUE CATEGORY DISTRIBUTION:")
-for issue, cnt in df['Issue_Category'].value_counts().items():
-    print(f"   {issue:25s} : {cnt:,}")
-print()
-print("[OK] STEP 3 - Details shown!")
+print("[OK] STEP 3 - Actual percentages shown!")
 print()
 
 
 
 
 # ============================================================
-# STEP 4 - SHOW SAMPLE FEEDBACKS
+# STEP 4 - SHOW SAMPLE COMMENTS BY CATEGORY
 # ============================================================
 print("=" * 65)
-print("   STEP 4 - SAMPLE FEEDBACKS")
+print("   STEP 4 - SAMPLE COMMENTS")
 print("=" * 65)
 print()
 
-print("10 Random feedbacks from dataset:")
+# Positive (CSAT=1)
+print("POSITIVE FEEDBACK SAMPLES (5) - CSAT=1:")
 print("-" * 65)
-samples = df['Customer_Feedback'].sample(10, random_state=42).values
-for i, fb in enumerate(samples, 1):
-    print(f"[{i:2d}] {fb[:120]}...")
+pos_samples = df[df['CSAT']==1]['Customer_Feedback']\
+    .sample(5, random_state=42).values
+for i, fb in enumerate(pos_samples, 1):
+    print(f"[{i}] {fb[:120]}...")
     print()
 
-print("[OK] STEP 4 - Sample feedbacks shown!")
+print()
+
+# Negative (DSAT=1)
+print("NEGATIVE FEEDBACK SAMPLES (5) - DSAT=1:")
+print("-" * 65)
+neg_samples = df[df['DSAT']==1]['Customer_Feedback']\
+    .sample(5, random_state=42).values
+for i, fb in enumerate(neg_samples, 1):
+    print(f"[{i}] {fb[:120]}...")
+    print()
+
+print()
+
+# Neutral (both 0)
+print("NEUTRAL FEEDBACK SAMPLES (5) - CSAT=0 DSAT=0:")
+print("-" * 65)
+neu_samples = df[(df['CSAT']==0) & (df['DSAT']==0)]\
+    ['Customer_Feedback'].sample(5, random_state=42).values
+for i, fb in enumerate(neu_samples, 1):
+    print(f"[{i}] {fb[:120]}...")
+    print()
+
+print("[OK] STEP 4 - Sample comments shown!")
 print()
 
 
@@ -152,7 +176,7 @@ print()
 # STEP 5 - PREDICTION FUNCTION
 # ============================================================
 print("=" * 65)
-print("   STEP 5 - SETTING UP PREDICTION FUNCTION")
+print("   STEP 5 - PREDICTION FUNCTION")
 print("=" * 65)
 print()
 
@@ -177,27 +201,27 @@ def predict_sentiment(text):
         sentiment  = 'Positive'
         confidence = round(prob * 100, 2)
         csat, dsat = 1, 0
-        nps_pred   = 9
-        nps_cat    = 'Promoter'
+        nps_p      = 9
+        nps_c      = 'Promoter'
     elif prob <= 0.35:
         sentiment  = 'Negative'
         confidence = round((1-prob) * 100, 2)
         csat, dsat = 0, 1
-        nps_pred   = 2
-        nps_cat    = 'Detractor'
+        nps_p      = 2
+        nps_c      = 'Detractor'
     else:
         sentiment  = 'Neutral'
         confidence = round(max(prob, 1-prob) * 100, 2)
         csat, dsat = 0, 0
-        nps_pred   = 6
-        nps_cat    = 'Passive'
+        nps_p      = 6
+        nps_c      = 'Passive'
 
-    return sentiment, confidence, csat, dsat, nps_pred, nps_cat
+    return sentiment, confidence, csat, dsat, nps_p, nps_c
 
-print("Prediction Logic:")
-print("   prob >= 0.65 → Positive | CSAT=1 DSAT=0 | NPS 9 Promoter")
-print("   prob <= 0.35 → Negative | CSAT=0 DSAT=1 | NPS 2 Detractor")
-print("   in between   → Neutral  | CSAT=0 DSAT=0 | NPS 6 Passive")
+print("Logic:")
+print("   prob >= 0.65 → Positive | CSAT=1 DSAT=0 | NPS 9")
+print("   prob <= 0.35 → Negative | CSAT=0 DSAT=1 | NPS 2")
+print("   in between   → Neutral  | CSAT=0 DSAT=0 | NPS 6")
 print()
 print("[OK] STEP 5 - Function ready!")
 print()
@@ -212,15 +236,13 @@ print("=" * 65)
 print("   STEP 6 - PREDICTING ON ALL FEEDBACKS")
 print("=" * 65)
 print()
-print(f"Predicting sentiment for {total:,} feedbacks...")
+print(f"Predicting on {total:,} feedbacks...")
 print()
 
 sentiments  = []
 confidences = []
 csat_preds  = []
 dsat_preds  = []
-nps_preds   = []
-nps_cats    = []
 start       = time.time()
 
 for i, feedback in enumerate(df['Customer_Feedback']):
@@ -231,28 +253,26 @@ for i, feedback in enumerate(df['Customer_Feedback']):
     confidences.append(conf)
     csat_preds.append(csat)
     dsat_preds.append(dsat)
-    nps_preds.append(nps_p)
-    nps_cats.append(nps_c)
 
     if (i+1) % 500 == 0 or (i+1) == total:
         elapsed = time.time() - start
-        print(f"   Progress: {i+1:,}/{total:,} "
+        print(f"   {i+1:,}/{total:,} "
               f"({(i+1)/total*100:.1f}%) | "
               f"Time: {elapsed:.0f}s")
 
 elapsed = time.time() - start
 print()
-print(f"[OK] Prediction done in {elapsed:.1f}s!")
+print(f"[OK] Done in {elapsed:.1f}s!")
 print()
 
 
 
 
 # ============================================================
-# STEP 7 - SHOW PREDICTED PERCENTAGES
+# STEP 7 - COMPARE PREDICTED VS ACTUAL
 # ============================================================
 print("=" * 65)
-print("   STEP 7 - PREDICTED PERCENTAGES")
+print("   STEP 7 - PREDICTED VS ACTUAL COMPARISON")
 print("=" * 65)
 print()
 
@@ -263,69 +283,96 @@ pred_csat = sum(csat_preds)
 pred_dsat = sum(dsat_preds)
 avg_conf  = sum(confidences) / total
 
-print(f"PREDICTED SENTIMENT:")
-print(f"   Positive : {pred_pos:,} ({pred_pos/total*100:.1f}%)")
-print(f"   Negative : {pred_neg:,} ({pred_neg/total*100:.1f}%)")
-print(f"   Neutral  : {pred_neu:,} ({pred_neu/total*100:.1f}%)")
+# Accuracy
+csat_correct = sum(
+    1 for p, a in zip(csat_preds, df['CSAT'])
+    if p == a
+)
+dsat_correct = sum(
+    1 for p, a in zip(dsat_preds, df['DSAT'])
+    if p == a
+)
+csat_acc = csat_correct / total * 100
+dsat_acc = dsat_correct / total * 100
+
+print(f"ACTUAL:")
+print(f"   CSAT=1 : {actual_csat:,} ({actual_csat/total*100:.1f}%)")
+print(f"   DSAT=1 : {actual_dsat:,} ({actual_dsat/total*100:.1f}%)")
+print(f"   Neutral: {actual_neu:,}  ({actual_neu/total*100:.1f}%)")
 print()
-print(f"CSAT (Satisfied Employees):")
-print(f"   CSAT = 1 : {pred_csat:,} ({pred_csat/total*100:.1f}%)")
-print(f"   CSAT = 0 : {total-pred_csat:,} ({(total-pred_csat)/total*100:.1f}%)")
+print(f"PREDICTED:")
+print(f"   CSAT=1 : {pred_csat:,} ({pred_csat/total*100:.1f}%)")
+print(f"   DSAT=1 : {pred_dsat:,} ({pred_dsat/total*100:.1f}%)")
+print(f"   Neutral: {pred_neu:,}  ({pred_neu/total*100:.1f}%)")
 print()
-print(f"DSAT (Dissatisfied Employees):")
-print(f"   DSAT = 1 : {pred_dsat:,} ({pred_dsat/total*100:.1f}%)")
-print(f"   DSAT = 0 : {total-pred_dsat:,} ({(total-pred_dsat)/total*100:.1f}%)")
+print(f"ACCURACY:")
+print(f"   CSAT Accuracy : {csat_acc:.1f}%")
+print(f"   DSAT Accuracy : {dsat_acc:.1f}%")
+print(f"   Avg Confidence: {avg_conf:.1f}%")
 print()
-print(f"Average Confidence : {avg_conf:.1f}%")
-print()
-print("[OK] STEP 7 - Percentages shown!")
+print("[OK] STEP 7 - Comparison done!")
 print()
 
 
 
 
 # ============================================================
-# STEP 8 - SAMPLE RESULTS (50 feedbacks)
+# STEP 8 - SAMPLE RESULTS WITH VERIFICATION (50)
 # ============================================================
 print("=" * 65)
-print("   STEP 8 - SAMPLE RESULTS (50 feedbacks)")
+print("   STEP 8 - SAMPLE RESULTS WITH VERIFICATION")
 print("=" * 65)
 print()
 
 df['Predicted_Sentiment'] = sentiments
 df['Confidence']          = confidences
-df['CSAT']                = csat_preds
-df['DSAT']                = dsat_preds
-df['Predicted_NPS']       = nps_preds
-df['Predicted_NPS_Cat']   = nps_cats
+df['Pred_CSAT']           = csat_preds
+df['Pred_DSAT']           = dsat_preds
 
-sample = df.sample(50, random_state=42).reset_index(drop=True)
+sample    = df.sample(50, random_state=42).reset_index(drop=True)
+correct_s = 0
+wrong_s   = 0
 
-print("50 predictions with CSAT DSAT NPS:")
+print("50 predictions vs actual CSAT DSAT:")
 print("=" * 65)
 
 for i in range(50):
-    fb       = sample['Customer_Feedback'].iloc[i]
-    employee = sample['Employee_Name'].iloc[i]
-    dept     = sample['Department'].iloc[i]
-    issue    = sample['Issue_Category'].iloc[i]
-    priority = sample['Priority'].iloc[i]
-    sla      = sample['SLA_Breached'].iloc[i]
-    sent     = sample['Predicted_Sentiment'].iloc[i]
-    conf     = sample['Confidence'].iloc[i]
-    csat     = sample['CSAT'].iloc[i]
-    dsat     = sample['DSAT'].iloc[i]
-    nps_p    = sample['Predicted_NPS'].iloc[i]
-    nps_c    = sample['Predicted_NPS_Cat'].iloc[i]
-    bar      = "#" * int(conf // 5)
+    fb          = sample['Customer_Feedback'].iloc[i]
+    employee    = sample['Employee_Name'].iloc[i]
+    dept        = sample['Department'].iloc[i]
+    issue       = sample['Issue_Category'].iloc[i]
+    priority    = sample['Priority'].iloc[i]
+    sla         = sample['SLA_Breached'].iloc[i]
+    rating      = sample['Star_Rating'].iloc[i]
+    actual_csat = sample['CSAT'].iloc[i]
+    actual_dsat = sample['DSAT'].iloc[i]
+    actual_nps  = sample['NPS_Score'].iloc[i]
+    actual_cat  = sample['NPS_Category'].iloc[i]
+    pred_sent   = sample['Predicted_Sentiment'].iloc[i]
+    conf        = sample['Confidence'].iloc[i]
+    pred_c      = sample['Pred_CSAT'].iloc[i]
+    pred_d      = sample['Pred_DSAT'].iloc[i]
+    bar         = "#" * int(conf // 5)
+
+    if pred_c == actual_csat and pred_d == actual_dsat:
+        correct_s += 1
+        match = "[CORRECT]"
+    else:
+        wrong_s += 1
+        match = "[WRONG]  "
 
     print(f"[{i+1:2d}] Employee  : {employee} ({dept})")
-    print(f"     Issue    : {issue} | Priority: {priority} | SLA: {sla}")
+    print(f"     Issue    : {issue} | Priority:{priority} | SLA:{sla}")
     print(f"     Feedback : {fb[:80]}...")
-    print(f"     Predicted: {sent:10s} | {bar} {conf}%")
-    print(f"     CSAT:{csat} DSAT:{dsat} | NPS:{nps_p} {nps_c}")
+    print(f"     Predicted: {pred_sent:10s} | {bar} {conf}%")
+    print(f"     Pred CSAT:{pred_c} DSAT:{pred_d}")
+    print(f"     Actual   : Rating={rating} | CSAT:{actual_csat} DSAT:{actual_dsat} | NPS:{actual_nps} {actual_cat} | {match}")
     print("-" * 65)
 
+print()
+print(f"Sample Summary:")
+print(f"   Correct : {correct_s}/50 ({correct_s/50*100:.1f}%)")
+print(f"   Wrong   : {wrong_s}/50  ({wrong_s/50*100:.1f}%)")
 print()
 print("[OK] STEP 8 - Sample results done!")
 print()
@@ -342,24 +389,24 @@ print("=" * 65)
 print()
 
 print(f"Overall Summary:")
-print(f"   Total Feedbacks : {total:,}")
-print(f"   Positive        : {pred_pos:,} ({pred_pos/total*100:.1f}%)")
-print(f"   Negative        : {pred_neg:,} ({pred_neg/total*100:.1f}%)")
-print(f"   Neutral         : {pred_neu:,} ({pred_neu/total*100:.1f}%)")
-print(f"   CSAT%           : {pred_csat/total*100:.1f}%")
-print(f"   DSAT%           : {pred_dsat/total*100:.1f}%")
-print(f"   SLA Breach%     : {sla_breach/total*100:.1f}%")
-print(f"   Avg Confidence  : {avg_conf:.1f}%")
+print(f"   Total Feedbacks  : {total:,}")
+print(f"   Actual CSAT%     : {actual_csat/total*100:.1f}%")
+print(f"   Actual DSAT%     : {actual_dsat/total*100:.1f}%")
+print(f"   Predicted CSAT%  : {pred_csat/total*100:.1f}%")
+print(f"   Predicted DSAT%  : {pred_dsat/total*100:.1f}%")
+print(f"   CSAT Accuracy    : {csat_acc:.1f}%")
+print(f"   DSAT Accuracy    : {dsat_acc:.1f}%")
+print(f"   SLA Breach%      : {sla_breach/total*100:.1f}%")
 print()
 
-print("CSAT% by Department:")
+print("Actual CSAT% by Department:")
 for dept, val in df.groupby('Department')['CSAT']\
         .mean().sort_values(ascending=False).items():
     bar = "#" * int(val*20)
     print(f"   {dept:20s} : {val*100:.1f}% {bar}")
 print()
 
-print("DSAT% by Department:")
+print("Actual DSAT% by Department:")
 for dept, val in df.groupby('Department')['DSAT']\
         .mean().sort_values(ascending=False).items():
     bar = "#" * int(val*20)
@@ -368,12 +415,6 @@ print()
 
 print("CSAT% by Issue Category:")
 for issue, val in df.groupby('Issue_Category')['CSAT']\
-        .mean().sort_values(ascending=False).items():
-    print(f"   {issue:25s} : {val*100:.1f}%")
-print()
-
-print("DSAT% by Issue Category:")
-for issue, val in df.groupby('Issue_Category')['DSAT']\
         .mean().sort_values(ascending=False).items():
     print(f"   {issue:25s} : {val*100:.1f}%")
 print()
@@ -390,7 +431,7 @@ for pri, grp in df.groupby('Priority'):
     print(f"   {pri} : {breach:,}/{len(grp):,} "
           f"({breach/len(grp)*100:.1f}% breached)")
 print()
-print("[OK] STEP 9 - Business insights done!")
+print("[OK] STEP 9 - Insights done!")
 print()
 
 
@@ -406,38 +447,49 @@ print()
 
 fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 fig.suptitle(
-    'SentimentIQ - Internal Employee Feedback Analysis',
+    'SentimentIQ - Internal Feedback WITH Scores Analysis',
     fontsize=16, fontweight='bold'
 )
 
-# Graph 1 - Sentiment Distribution
+# Graph 1 - Actual CSAT DSAT
 axes[0,0].pie(
-    [pred_pos, pred_neg, pred_neu],
-    labels=[f'Positive\n{pred_pos:,}',
-            f'Negative\n{pred_neg:,}',
-            f'Neutral\n{pred_neu:,}'],
+    [actual_csat, actual_dsat, actual_neu],
+    labels=[f'CSAT=1\n{actual_csat:,}',
+            f'DSAT=1\n{actual_dsat:,}',
+            f'Neutral\n{actual_neu:,}'],
     colors=['#22c55e','#ef4444','#3b82f6'],
     autopct='%1.1f%%', startangle=90
 )
-axes[0,0].set_title('Predicted Sentiment',
+axes[0,0].set_title('Actual CSAT vs DSAT',
                      fontweight='bold')
 
-# Graph 2 - CSAT vs DSAT
-cats = ['CSAT\n(Satisfied)',
-        'DSAT\n(Dissatisfied)',
-        'Neutral']
-vals = [pred_csat, pred_dsat, pred_neu]
-cols = ['#22c55e','#ef4444','#3b82f6']
-bars = axes[0,1].bar(cats, vals, color=cols)
-axes[0,1].set_title('CSAT vs DSAT vs Neutral',
+# Graph 2 - Predicted vs Actual CSAT DSAT
+x     = np.arange(2)
+width = 0.35
+b1    = axes[0,1].bar(
+    x-width/2,
+    [actual_csat, actual_dsat],
+    width, label='Actual',
+    color=['#22c55e','#ef4444']
+)
+b2    = axes[0,1].bar(
+    x+width/2,
+    [pred_csat, pred_dsat],
+    width, label='Predicted',
+    color=['#86efac','#fca5a5']
+)
+axes[0,1].set_title('Actual vs Predicted',
                      fontweight='bold')
+axes[0,1].set_xticks(x)
+axes[0,1].set_xticklabels(['CSAT','DSAT'])
+axes[0,1].legend()
 axes[0,1].set_ylabel('Count')
-for bar, val in zip(bars, vals):
+for bar in list(b1)+list(b2):
     axes[0,1].text(
         bar.get_x()+bar.get_width()/2,
         bar.get_height()+10,
-        f'{val:,}',
-        ha='center', fontweight='bold'
+        f'{int(bar.get_height()):,}',
+        ha='center', fontsize=8
     )
 
 # Graph 3 - CSAT by Department
@@ -463,9 +515,9 @@ axes[1,0].tick_params(axis='x', rotation=45)
 sla_data = df.groupby('Priority').apply(
     lambda x: len(x[x['SLA_Breached']=='Yes'])/len(x)*100
 )
-colors5 = ['#ef4444','#f97316','#eab308']
 sla_data.plot(
-    kind='bar', ax=axes[1,1], color=colors5
+    kind='bar', ax=axes[1,1],
+    color=['#ef4444','#f97316','#eab308']
 )
 axes[1,1].set_title('SLA Breach% by Priority',
                      fontweight='bold')
@@ -479,26 +531,30 @@ for p in axes[1,1].patches:
         ha='center', fontsize=9
     )
 
-# Graph 6 - Confidence Distribution
-axes[1,2].hist(
-    confidences, bins=20,
-    color='#6366f1', edgecolor='white'
+# Graph 6 - Rating Distribution
+rating_counts = df['Star_Rating'].value_counts().sort_index()
+colors6 = ['#ef4444','#f97316','#eab308',
+           '#84cc16','#22c55e']
+bars6   = axes[1,2].bar(
+    [f'{r} Star' for r in rating_counts.index],
+    rating_counts.values,
+    color=colors6
 )
-axes[1,2].axvline(
-    avg_conf, color='red',
-    linestyle='--',
-    label=f'Mean: {avg_conf:.1f}%'
-)
-axes[1,2].set_title('Confidence Distribution',
+axes[1,2].set_title('Star Rating Distribution',
                      fontweight='bold')
-axes[1,2].set_xlabel('Confidence %')
 axes[1,2].set_ylabel('Count')
-axes[1,2].legend()
+for bar, val in zip(bars6, rating_counts.values):
+    axes[1,2].text(
+        bar.get_x()+bar.get_width()/2,
+        bar.get_height()+5,
+        str(val), ha='center',
+        fontweight='bold', fontsize=9
+    )
 
 plt.tight_layout()
-plt.savefig('internal_feedback_graph.png',
+plt.savefig('internal_with_scores_graph.png',
             dpi=150, bbox_inches='tight')
-print("[OK] Graph saved as internal_feedback_graph.png")
+print("[OK] Graph saved as internal_with_scores_graph.png")
 plt.show()
 print()
 
@@ -513,17 +569,15 @@ print("   STEP 11 - SAVING RESULTS")
 print("=" * 65)
 print()
 
-df.to_csv('internal_predicted_results.csv', index=False)
-print("[OK] Saved to internal_predicted_results.csv")
+df.to_csv('internal_with_scores_results.csv', index=False)
+print("[OK] Saved to internal_with_scores_results.csv")
 print()
 print("Columns in saved file:")
 print("   All original columns PLUS:")
-print("   Predicted_Sentiment ← Positive/Negative/Neutral")
-print("   Confidence          ← Model confidence %")
-print("   CSAT                ← 1 or 0")
-print("   DSAT                ← 1 or 0")
-print("   Predicted_NPS       ← 9/6/2")
-print("   Predicted_NPS_Cat   ← Promoter/Passive/Detractor")
+print("   Predicted_Sentiment ← model prediction")
+print("   Confidence          ← model confidence %")
+print("   Pred_CSAT           ← predicted CSAT 0 or 1")
+print("   Pred_DSAT           ← predicted DSAT 0 or 1")
 print()
 
 
@@ -533,26 +587,27 @@ print()
 # FINAL SUMMARY
 # ============================================================
 print("=" * 65)
-print("   SENTIMENTIQ - INTERNAL ANALYSIS COMPLETE")
+print("   SENTIMENTIQ - WITH SCORES ANALYSIS COMPLETE")
 print("=" * 65)
 print()
-print(f"   Dataset          : Internal_Feedback_WITHOUT_Scores.csv")
+print(f"   Dataset          : Internal_Feedback_WITH_Scores.csv")
 print(f"   Total Feedbacks  : {total:,}")
-print(f"   Positive         : {pred_pos:,} ({pred_pos/total*100:.1f}%)")
-print(f"   Negative         : {pred_neg:,} ({pred_neg/total*100:.1f}%)")
-print(f"   Neutral          : {pred_neu:,} ({pred_neu/total*100:.1f}%)")
-print(f"   CSAT%            : {pred_csat/total*100:.1f}%")
-print(f"   DSAT%            : {pred_dsat/total*100:.1f}%")
+print(f"   Actual CSAT%     : {actual_csat/total*100:.1f}%")
+print(f"   Actual DSAT%     : {actual_dsat/total*100:.1f}%")
+print(f"   Predicted CSAT%  : {pred_csat/total*100:.1f}%")
+print(f"   Predicted DSAT%  : {pred_dsat/total*100:.1f}%")
+print(f"   CSAT Accuracy    : {csat_acc:.1f}%")
+print(f"   DSAT Accuracy    : {dsat_acc:.1f}%")
 print(f"   SLA Breach%      : {sla_breach/total*100:.1f}%")
 print(f"   Avg Confidence   : {avg_conf:.1f}%")
 print(f"   Time Taken       : {elapsed:.1f}s")
 print()
-print("   NPS Links:")
+print("   Prediction Links:")
 print("   Positive → CSAT=1 DSAT=0 NPS=9 Promoter")
 print("   Negative → CSAT=0 DSAT=1 NPS=2 Detractor")
 print("   Neutral  → CSAT=0 DSAT=0 NPS=6 Passive")
 print()
 print("   Output Files:")
-print("   internal_predicted_results.csv - Full results")
-print("   internal_feedback_graph.png    - 6 Graphs")
+print("   internal_with_scores_results.csv  - Full results")
+print("   internal_with_scores_graph.png    - 6 Graphs")
 print("=" * 65)
