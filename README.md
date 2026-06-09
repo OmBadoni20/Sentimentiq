@@ -953,3 +953,369 @@ export default function Dashboard({ user, onLogout }) {
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
+
+
+
+
+import useTableData from '../hooks/useTableData.js'
+
+const C = {
+  bg2:'#161b22', panel:'#13181f', border:'#21262d',
+  cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
+  amber:'#d29922', violet:'#bc8cff',
+  text:'#e6edf3', sub:'#8b949e', dim:'#484f58',
+}
+
+const BADGE_MAP = {
+  Positive:  {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  Negative:  {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  Neutral:   {bg:'#d2992218',c:'#d29922',bd:'#d2992240'},
+  Promoter:  {bg:'#58a6ff18',c:'#58a6ff',bd:'#58a6ff40'},
+  Detractor: {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  Passive:   {bg:'#bc8cff18',c:'#bc8cff',bd:'#bc8cff40'},
+  Yes:       {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  No:        {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  P1:        {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  P2:        {bg:'#d2992218',c:'#d29922',bd:'#d2992240'},
+  P3:        {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  '1':       {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  '0':       {bg:'#48484818',c:'#484f58',bd:'#48484840'},
+}
+const BADGE_COLS = new Set([
+  'Predicted_Sentiment','NPS_Category','SLA_Breached',
+  'Priority','CSAT','DSAT','Status','status',
+])
+const EMAIL_COLS = new Set([
+  'Employee_Email','Client_Email','email','Email',
+])
+
+function Badge({ v }) {
+  const s = BADGE_MAP[String(v)]
+  if (!s) return <span style={{ color: C.text, fontSize: 11 }}>{v}</span>
+  return (
+    <span style={{
+      background: s.bg, color: s.c, border: `1px solid ${s.bd}`,
+      borderRadius: 5, padding: '2px 9px',
+      fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+    }}>{v}</span>
+  )
+}
+
+// ── Pagination bar ────────────────────────────────────────
+function Pagination({ page, totalPages, setPage, filtered, pageSize }) {
+  if (totalPages <= 1) return null
+
+  const start = (page - 1) * pageSize + 1
+  const end   = Math.min(page * pageSize, filtered.length)
+
+  // build page number buttons — show max 5 around current
+  const pages = []
+  let from = Math.max(1, page - 2)
+  let to   = Math.min(totalPages, page + 2)
+  if (page <= 2)              to   = Math.min(5, totalPages)
+  if (page >= totalPages - 1) from = Math.max(1, totalPages - 4)
+
+  for (let i = from; i <= to; i++) pages.push(i)
+
+  const btnBase = {
+    border: `1px solid ${C.border}`, borderRadius: 7,
+    padding: '6px 12px', fontSize: 12, fontWeight: 700,
+    cursor: 'pointer', fontFamily: 'inherit',
+    transition: 'all .15s', minWidth: 36, textAlign: 'center',
+  }
+  const btnActive = { ...btnBase, background: C.cyan + '20', border: `1px solid ${C.cyan}`, color: C.cyan }
+  const btnNormal = { ...btnBase, background: 'transparent', color: C.sub }
+  const btnDisabled = { ...btnBase, background: 'transparent', color: C.dim, cursor: 'not-allowed', opacity: .5 }
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      marginTop: 14, flexWrap: 'wrap', gap: 10,
+    }}>
+
+      {/* Row range info */}
+      <div style={{ fontSize: 11, color: C.sub }}>
+        Showing rows{' '}
+        <strong style={{ color: C.cyan }}>{start.toLocaleString()}</strong>
+        {' '}–{' '}
+        <strong style={{ color: C.cyan }}>{end.toLocaleString()}</strong>
+        {' '}of{' '}
+        <strong style={{ color: C.text }}>{filtered.length.toLocaleString()}</strong>
+        {' '}filtered rows
+        {' · '}
+        Page <strong style={{ color: C.cyan }}>{page}</strong> of{' '}
+        <strong style={{ color: C.text }}>{totalPages}</strong>
+      </div>
+
+      {/* Page buttons */}
+      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+
+        {/* First */}
+        <button
+          onClick={() => setPage(1)}
+          disabled={page === 1}
+          style={page === 1 ? btnDisabled : btnNormal}
+        >«</button>
+
+        {/* Prev */}
+        <button
+          onClick={() => setPage(p => p - 1)}
+          disabled={page === 1}
+          style={page === 1 ? btnDisabled : btnNormal}
+        >‹ Prev</button>
+
+        {/* Page numbers */}
+        {from > 1 && (
+          <>
+            <button onClick={() => setPage(1)} style={btnNormal}>1</button>
+            {from > 2 && <span style={{ color: C.dim, padding: '0 4px' }}>…</span>}
+          </>
+        )}
+
+        {pages.map(p => (
+          <button
+            key={p}
+            onClick={() => setPage(p)}
+            style={p === page ? btnActive : btnNormal}
+          >{p}</button>
+        ))}
+
+        {to < totalPages && (
+          <>
+            {to < totalPages - 1 && <span style={{ color: C.dim, padding: '0 4px' }}>…</span>}
+            <button onClick={() => setPage(totalPages)} style={btnNormal}>{totalPages}</button>
+          </>
+        )}
+
+        {/* Next */}
+        <button
+          onClick={() => setPage(p => p + 1)}
+          disabled={page === totalPages}
+          style={page === totalPages ? btnDisabled : btnNormal}
+        >Next ›</button>
+
+        {/* Last */}
+        <button
+          onClick={() => setPage(totalPages)}
+          disabled={page === totalPages}
+          style={page === totalPages ? btnDisabled : btnNormal}
+        >»</button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main DataTable ────────────────────────────────────────
+export default function DataTable({ rows }) {
+  const {
+    processed, filtered,
+    search, setSearch,
+    sortCol, sortDir, handleSort,
+    colFilter, setFilter,
+    uniqueValues, clearFilters,
+    page, setPage,
+    totalPages, pageSize,
+  } = useTableData(rows)
+
+  const cols = rows.length ? Object.keys(rows[0]) : []
+  const hasFilters = search || Object.values(colFilter).some(v => v && v !== 'All')
+
+  return (
+    <div>
+
+      {/* ── Toolbar ─────────────────────────────────── */}
+      <div style={{
+        display: 'flex', gap: 10, alignItems: 'center',
+        marginBottom: 12, flexWrap: 'wrap',
+      }}>
+
+        {/* Search */}
+        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+          <span style={{
+            position: 'absolute', left: 11, top: '50%',
+            transform: 'translateY(-50%)',
+            color: C.dim, fontSize: 13, pointerEvents: 'none',
+          }}>🔍</span>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search across all columns…"
+            style={{
+              width: '100%', background: C.bg2,
+              border: `1px solid ${C.border}`, borderRadius: 8,
+              padding: '8px 12px 8px 32px',
+              color: C.text, fontSize: 12,
+              fontFamily: 'inherit', outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+
+        {/* Row count */}
+        <div style={{ fontSize: 11, color: C.sub, whiteSpace: 'nowrap' }}>
+          <strong style={{ color: C.cyan }}>{filtered.length.toLocaleString()}</strong>
+          {' '}of{' '}
+          <strong style={{ color: C.text }}>{rows.length.toLocaleString()}</strong>
+          {' '}rows
+        </div>
+
+        {/* Page size info */}
+        <div style={{
+          background: C.cyan + '10', border: `1px solid ${C.cyan}30`,
+          borderRadius: 6, padding: '4px 10px',
+          fontSize: 11, color: C.cyan, whiteSpace: 'nowrap',
+        }}>
+          {pageSize.toLocaleString()} rows / page
+        </div>
+
+        {/* Clear filters */}
+        {hasFilters && (
+          <button onClick={clearFilters} style={{
+            background: C.red + '18', border: `1px solid ${C.red}50`,
+            color: C.red, borderRadius: 7, padding: '6px 12px',
+            fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}>✕ Clear</button>
+        )}
+      </div>
+
+      {/* ── Table ───────────────────────────────────── */}
+      <div style={{
+        background: C.panel, border: `1px solid ${C.border}`,
+        borderRadius: 12, overflow: 'hidden',
+      }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '58vh' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+
+              {/* Row 1 — column names + sort */}
+              <tr style={{ background: C.bg2 }}>
+                {cols.map(col => (
+                  <th
+                    key={col}
+                    onClick={() => handleSort(col)}
+                    style={{
+                      padding: '10px 14px', textAlign: 'left',
+                      color: C.cyan, fontWeight: 700, fontSize: 10,
+                      letterSpacing: 1.4, textTransform: 'uppercase',
+                      whiteSpace: 'nowrap',
+                      borderBottom: `1px solid ${C.border}`,
+                      cursor: 'pointer', userSelect: 'none',
+                      position: 'sticky', top: 0, background: C.bg2,
+                    }}
+                  >
+                    {col.replace(/_/g, ' ')}
+                    <span style={{
+                      marginLeft: 4,
+                      color: sortCol === col ? C.cyan : C.dim,
+                    }}>
+                      {sortCol === col
+                        ? (sortDir === 'asc' ? '↑' : '↓')
+                        : '⇅'}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+
+              {/* Row 2 — per-column filter dropdowns */}
+              <tr style={{ background: C.bg2 }}>
+                {cols.map(col => {
+                  const opts = uniqueValues[col]
+                  return (
+                    <th key={col} style={{
+                      padding: '4px 8px',
+                      borderBottom: `1px solid ${C.border}`,
+                      position: 'sticky', top: 38, background: C.bg2,
+                    }}>
+                      {opts ? (
+                        <select
+                          value={colFilter[col] || 'All'}
+                          onChange={e => setFilter(col, e.target.value)}
+                          style={{
+                            background: C.panel,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 5,
+                            color: colFilter[col] && colFilter[col] !== 'All'
+                              ? C.cyan : C.dim,
+                            fontSize: 10, padding: '3px 6px',
+                            fontFamily: 'inherit', cursor: 'pointer',
+                            width: '100%', outline: 'none',
+                          }}
+                        >
+                          <option value="All">All</option>
+                          {opts.sort().map(v => (
+                            <option key={v} value={v}>{v || '(empty)'}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div style={{ height: 24 }} />
+                      )}
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+
+            <tbody>
+              {processed.map((row, ri) => (
+                <tr
+                  key={ri}
+                  style={{
+                    borderBottom: `1px solid ${C.border}22`,
+                    background: ri % 2 ? '#ffffff04' : 'transparent',
+                    transition: 'background .1s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = C.cyan + '0a')}
+                  onMouseLeave={e => (e.currentTarget.style.background = ri % 2 ? '#ffffff04' : 'transparent')}
+                >
+                  {cols.map(col => (
+                    <td key={col} style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
+                      {BADGE_COLS.has(col) ? (
+                        <Badge v={String(row[col])} />
+                      ) : EMAIL_COLS.has(col) ? (
+                        <span style={{ color: C.violet, fontSize: 11 }}>{row[col]}</span>
+                      ) : (
+                        <span style={{ color: C.text }}>
+                          {String(row[col]).length > 48
+                            ? String(row[col]).slice(0, 48) + '…'
+                            : row[col]}
+                        </span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+
+              {!processed.length && (
+                <tr>
+                  <td
+                    colSpan={cols.length}
+                    style={{ padding: 48, textAlign: 'center', color: C.dim }}
+                  >
+                    No records match your filters
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Pagination bar ───────────────────────────── */}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        setPage={setPage}
+        filtered={filtered}
+        pageSize={pageSize}
+      />
+
+      <style>{`
+        select option { background: ${C.bg2}; color: ${C.text}; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: #07090f; }
+        ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
+      `}</style>
+    </div>
+  )
+}
