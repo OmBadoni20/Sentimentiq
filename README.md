@@ -1,1121 +1,938 @@
-# ============================================================
-# SENTIMENTIQ - ROBERTA BASE FINE TUNED
-# Works with Internal only, External only, or Both!
-# Classes  : Positive / Negative / Neutral
-# Expected : 88-93% accuracy
-# ============================================================
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.jsx'
 
-import ssl
-import os
-
-ssl._create_default_https_context = ssl._create_unverified_context
-os.environ['CURL_CA_BUNDLE']            = ''
-os.environ['REQUESTS_CA_BUNDLE']        = ''
-os.environ['PYTHONHTTPSVERIFY']         = '0'
-os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
-os.environ['TRANSFORMERS_VERIFY_SSL']   = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL']      = '2'
-
-import pandas            as pd
-import numpy             as np
-import matplotlib.pyplot as plt
-import seaborn           as sns
-import time
-import warnings
-
-warnings.filterwarnings('ignore')
-
-# ============================================================
-# CONFIGURE HERE - Choose which datasets to use
-# ============================================================
-USE_INTERNAL = True   # Set False to skip internal
-USE_EXTERNAL = True   # Set False to skip external
-# ============================================================
-
-print("=" * 65)
-print("   SENTIMENTIQ - ROBERTA BASE FINE TUNED")
-print("   Best model for IT feedback!")
-print("   Positive / Negative / Neutral")
-print("=" * 65)
-print()
-print(f"   USE_INTERNAL : {USE_INTERNAL}")
-print(f"   USE_EXTERNAL : {USE_EXTERNAL}")
-print()
-
-
-
-
-# ============================================================
-# STEP 1 - IMPORT LIBRARIES
-# ============================================================
-# Run this first in CMD:
-# pip install transformers torch datasets accelerate
-#     --trusted-host pypi.org
-#     --trusted-host files.pythonhosted.org
-
-print("=" * 65)
-print("   STEP 1 - IMPORTING LIBRARIES")
-print("=" * 65)
-print()
-
-import torch
-from torch.utils.data        import Dataset, DataLoader
-from transformers            import (
-    RobertaTokenizer,
-    RobertaForSequenceClassification,
-    AdamW,
-    get_linear_schedule_with_warmup
-)
-from sklearn.model_selection import train_test_split
-from sklearn.metrics         import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
 )
 
-device = torch.device(
-    'cuda' if torch.cuda.is_available() else 'cpu'
-)
-print(f"[OK] Libraries imported!")
-print(f"[OK] Device : {device}")
-if device.type == 'cpu':
-    print("     Running on CPU")
-    print("     Training will take 30-45 minutes")
-else:
-    print("     Running on GPU - fast!")
-print()
-
-label2id    = {'Negative':0, 'Neutral':1, 'Positive':2}
-id2label    = {0:'Negative', 1:'Neutral', 2:'Positive'}
-SEED        = 42
-MAX_LEN     = 128
-BATCH_SIZE  = 16
-EPOCHS      = 4
-LR          = 2e-5
-
-torch.manual_seed(SEED)
-np.random.seed(SEED)
 
 
 
 
-# ============================================================
-# STEP 2 - LOAD DATASETS
-# ============================================================
-print("=" * 65)
-print("   STEP 2 - LOADING DATASETS")
-print("=" * 65)
-print()
+import { useState } from 'react'
+import Login     from './pages/Login.jsx'
+import Dashboard from './pages/Dashboard.jsx'
 
-datasets    = []
-df_internal = None
-df_external = None
+export default function App() {
+  const [user, setUser] = useState(null)
 
-if USE_INTERNAL:
-    try:
-        df_internal = pd.read_csv(
-            "Internal_Employee_Feedback_Balanced.csv"
+  if (!user) return <Login onLogin={setUser} />
+  return <Dashboard user={user} onLogout={() => setUser(null)} />
+}
+
+
+
+
+
+import { useState } from 'react'
+
+const USERS = {
+  'om.badoni': { password: 'NTT@2026',     role: 'Developer', name: 'Om Badoni'   },
+  'manager':   { password: 'Manager@2026', role: 'Manager',   name: 'NTT Manager' },
+  'admin':     { password: 'Admin@2026',   role: 'Admin',     name: 'Admin User'  },
+}
+
+const C = {
+  bg0:'#07090f', bg1:'#0d1117', bg2:'#161b22', panel:'#13181f',
+  border:'#21262d', cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
+  violet:'#bc8cff', text:'#e6edf3', sub:'#8b949e', dim:'#484f58',
+}
+
+export default function Login({ onLogin }) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPwd,  setShowPwd]  = useState(false)
+  const [error,    setError]    = useState('')
+  const [loading,  setLoading]  = useState(false)
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    setError('')
+    if (!username.trim()) { setError('Username is required'); return }
+    if (!password.trim()) { setError('Password is required'); return }
+    setLoading(true)
+    setTimeout(() => {
+      const user = USERS[username.trim().toLowerCase()]
+      if (user && user.password === password) {
+        onLogin({ username: username.trim(), name: user.name, role: user.role })
+      } else {
+        setError('Invalid username or password')
+        setLoading(false)
+      }
+    }, 700)
+  }
+
+  const inp = {
+    width: '100%', background: C.bg2,
+    border: `1px solid ${C.border}`, borderRadius: 9,
+    padding: '12px 14px', color: C.text, fontSize: 13,
+    fontFamily: 'inherit', outline: 'none',
+    boxSizing: 'border-box', transition: 'border-color .2s',
+  }
+
+  return (
+    <div style={{
+      minHeight: '100vh', background: C.bg0,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: "'IBM Plex Mono','Courier New',monospace", padding: 20,
+    }}>
+
+      {/* grid bg */}
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+        backgroundImage: `linear-gradient(${C.border}44 1px,transparent 1px),
+                          linear-gradient(90deg,${C.border}44 1px,transparent 1px)`,
+        backgroundSize: '40px 40px',
+      }}/>
+
+      {/* glow */}
+      <div style={{
+        position: 'fixed', top: '30%', left: '50%',
+        transform: 'translate(-50%,-50%)', width: 500, height: 300,
+        background: `radial-gradient(ellipse,${C.cyan}14 0%,transparent 70%)`,
+        pointerEvents: 'none', zIndex: 0,
+      }}/>
+
+      {/* card */}
+      <div style={{
+        position: 'relative', zIndex: 1,
+        background: C.panel, border: `1px solid ${C.border}`,
+        borderRadius: 18, padding: '40px 44px',
+        width: '100%', maxWidth: 420,
+        boxShadow: `0 0 60px ${C.cyan}12`,
+      }}>
+
+        {/* logo */}
+        <div style={{ textAlign: 'center', marginBottom: 34 }}>
+          <div style={{
+            width: 52, height: 52, borderRadius: 14,
+            background: `linear-gradient(135deg,${C.cyan},${C.violet})`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 24, margin: '0 auto 14px',
+            boxShadow: `0 0 28px ${C.cyan}30`,
+          }}>⚡</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.cyan, letterSpacing: 3 }}>
+            SENTIMENTIQ
+          </div>
+          <div style={{ fontSize: 11, color: C.dim, marginTop: 4, letterSpacing: 1.5 }}>
+            NTT DATA · AI ANALYTICS PLATFORM
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+          {/* username */}
+          <div>
+            <label style={{
+              display: 'block', fontSize: 10, color: C.sub,
+              letterSpacing: 1.5, fontWeight: 700, marginBottom: 7, textTransform: 'uppercase',
+            }}>Username</label>
+            <input
+              type="text" value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder="e.g.  om.badoni"
+              autoComplete="username" spellCheck={false}
+              style={inp}
+              onFocus={e => (e.target.style.borderColor = C.cyan)}
+              onBlur={e  => (e.target.style.borderColor = C.border)}
+            />
+          </div>
+
+          {/* password */}
+          <div>
+            <label style={{
+              display: 'block', fontSize: 10, color: C.sub,
+              letterSpacing: 1.5, fontWeight: 700, marginBottom: 7, textTransform: 'uppercase',
+            }}>Password</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPwd ? 'text' : 'password'} value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Enter password"
+                autoComplete="current-password"
+                style={{ ...inp, paddingRight: 44 }}
+                onFocus={e => (e.target.style.borderColor = C.cyan)}
+                onBlur={e  => (e.target.style.borderColor = C.border)}
+              />
+              <button type="button" onClick={() => setShowPwd(v => !v)} style={{
+                position: 'absolute', right: 12, top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'transparent', border: 'none',
+                color: C.dim, cursor: 'pointer', fontSize: 16, padding: 4,
+              }}>
+                {showPwd ? '🙈' : '👁️'}
+              </button>
+            </div>
+          </div>
+
+          {/* error */}
+          {error && (
+            <div style={{
+              background: C.red + '15', border: `1px solid ${C.red}40`,
+              borderRadius: 8, padding: '9px 13px',
+              fontSize: 12, color: C.red, fontWeight: 600,
+            }}>⚠ {error}</div>
+          )}
+
+          {/* submit */}
+          <button type="submit" disabled={loading} style={{
+            background: loading ? C.dim : `linear-gradient(135deg,${C.cyan},${C.violet})`,
+            border: 'none', borderRadius: 10, padding: 13, width: '100%',
+            color: loading ? C.sub : '#000',
+            fontSize: 13, fontWeight: 900,
+            cursor: loading ? 'not-allowed' : 'pointer',
+            fontFamily: 'inherit', letterSpacing: 1,
+          }}>
+            {loading ? 'SIGNING IN…' : 'SIGN IN →'}
+          </button>
+        </form>
+
+        {/* demo creds */}
+        <div style={{
+          marginTop: 26, padding: 14,
+          background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9,
+        }}>
+          <div style={{
+            fontSize: 10, color: C.dim, letterSpacing: 1.5, fontWeight: 700, marginBottom: 8,
+          }}>DEMO CREDENTIALS</div>
+          {[
+            ['om.badoni',  'NTT@2026',     'Developer'],
+            ['manager',    'Manager@2026', 'Manager'  ],
+            ['admin',      'Admin@2026',   'Admin'    ],
+          ].map(([u, p, r]) => (
+            <div key={u} onClick={() => { setUsername(u); setPassword(p) }} style={{
+              display: 'flex', justifyContent: 'space-between',
+              fontSize: 11, color: C.sub, padding: '5px 0',
+              cursor: 'pointer', borderBottom: `1px solid ${C.border}44`,
+            }}>
+              <span style={{ color: C.cyan }}>{u}</span>
+              <span>{p}</span>
+              <span style={{ color: C.violet }}>{r}</span>
+            </div>
+          ))}
+          <div style={{ fontSize: 9, color: C.dim, marginTop: 6 }}>Click any row to auto-fill</div>
+        </div>
+      </div>
+
+      <style>{`
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:${C.bg0}}
+        input::placeholder{color:${C.dim}}
+      `}</style>
+    </div>
+  )
+}
+
+
+
+
+
+
+
+import * as XLSX from 'xlsx'
+
+export function parseCSV(text) {
+  const lines = text.trim().split('\n').filter(Boolean)
+  if (!lines.length) return []
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+  return lines.slice(1).map(line => {
+    const vals = []
+    let cur = '', inQ = false
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ }
+      else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = '' }
+      else { cur += ch }
+    }
+    vals.push(cur.trim())
+    const obj = {}
+    headers.forEach((h, i) => { obj[h] = vals[i] ?? '' })
+    return obj
+  })
+}
+
+export function parseExcel(buffer) {
+  const wb   = XLSX.read(buffer, { type: 'array' })
+  const ws   = wb.Sheets[wb.SheetNames[0]]
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+  return { rows, sheet: wb.SheetNames[0], allSheets: wb.SheetNames }
+}
+
+export function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const ext = file.name.split('.').pop().toLowerCase()
+
+    if (ext === 'csv') {
+      const reader = new FileReader()
+      reader.onload  = e => {
+        try {
+          const rows = parseCSV(e.target.result)
+          resolve({ rows, fileName: file.name, type: 'CSV' })
+        } catch (err) { reject(err) }
+      }
+      reader.onerror = reject
+      reader.readAsText(file)
+
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      const reader = new FileReader()
+      reader.onload  = e => {
+        try {
+          const { rows, sheet } = parseExcel(e.target.result)
+          resolve({ rows, fileName: file.name, type: 'Excel', sheet })
+        } catch (err) { reject(err) }
+      }
+      reader.onerror = reject
+      reader.readAsArrayBuffer(file)
+
+    } else {
+      reject(new Error(`Unsupported file type: .${ext}`))
+    }
+  })
+}
+
+
+
+
+
+
+import { useState, useMemo } from 'react'
+
+export default function useTableData(rows) {
+  const [search,    setSearch]    = useState('')
+  const [sortCol,   setSortCol]   = useState(null)
+  const [sortDir,   setSortDir]   = useState('asc')
+  const [colFilter, setColFilter] = useState({})
+
+  function handleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  function setFilter(col, val) {
+    setColFilter(prev => ({ ...prev, [col]: val }))
+  }
+
+  function clearFilters() {
+    setSearch(''); setColFilter({})
+    setSortCol(null); setSortDir('asc')
+  }
+
+  const processed = useMemo(() => {
+    let data = [...rows]
+
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      data = data.filter(row =>
+        Object.values(row).some(v => String(v).toLowerCase().includes(q))
+      )
+    }
+
+    Object.entries(colFilter).forEach(([col, val]) => {
+      if (val && val !== 'All') {
+        data = data.filter(row =>
+          String(row[col]).toLowerCase() === String(val).toLowerCase()
         )
-        df_int_train = df_internal.copy()
-        df_int_train['text']   = df_int_train['Customer_Feedback']
-        df_int_train['label']  = df_int_train['Predicted_Sentiment']\
-            .map(label2id)
-        df_int_train['source'] = 'Internal'
-        datasets.append(
-            df_int_train[['text','label',
-                          'Predicted_Sentiment','source']]
-        )
-        print(f"[OK] Internal loaded : {len(df_internal):,} rows")
-    except FileNotFoundError:
-        print("[SKIP] Internal file not found!")
-        USE_INTERNAL = False
-
-if USE_EXTERNAL:
-    try:
-        df_external = pd.read_csv(
-            "External_Client_Feedback_Balanced.csv"
-        )
-        df_ext_train = df_external.copy()
-        df_ext_train['text']   = df_ext_train['Client_Feedback']
-        df_ext_train['label']  = df_ext_train['Predicted_Sentiment']\
-            .map(label2id)
-        df_ext_train['source'] = 'External'
-        datasets.append(
-            df_ext_train[['text','label',
-                          'Predicted_Sentiment','source']]
-        )
-        print(f"[OK] External loaded : {len(df_external):,} rows")
-    except FileNotFoundError:
-        print("[SKIP] External file not found!")
-        USE_EXTERNAL = False
-
-if len(datasets) == 0:
-    print()
-    print("ERROR: No datasets found!")
-    print("Please add at least one CSV file!")
-    exit()
-
-df_all = pd.concat(
-    datasets, ignore_index=True
-).sample(frac=1, random_state=SEED).reset_index(drop=True)
-
-df_all = df_all.dropna(subset=['text','label'])
-df_all['label'] = df_all['label'].astype(int)
-
-print()
-print(f"[OK] Total combined  : {len(df_all):,} rows")
-print()
-print("DISTRIBUTION:")
-for sent, cnt in df_all['Predicted_Sentiment'].value_counts().items():
-    pct = cnt/len(df_all)*100
-    bar = "#" * int(pct/2)
-    print(f"   {sent:10s} : {cnt:,} ({pct:.1f}%) {bar}")
-print()
-print("[OK] STEP 2 - Datasets loaded!")
-print()
-
-
-
-
-# ============================================================
-# STEP 3 - LOAD TOKENIZER
-# ============================================================
-print("=" * 65)
-print("   STEP 3 - LOADING ROBERTA TOKENIZER")
-print("=" * 65)
-print()
-
-print("Downloading RoBERTa tokenizer...")
-print("First time = ~500MB download")
-print("After that = loads from cache!")
-print()
-
-tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-
-print("[OK] Tokenizer loaded!")
-print()
-
-
-
-
-# ============================================================
-# STEP 4 - PREPARE DATASET CLASS
-# ============================================================
-print("=" * 65)
-print("   STEP 4 - PREPARING DATASET")
-print("=" * 65)
-print()
-
-class FeedbackDataset(Dataset):
-    def __init__(self, texts, labels, tokenizer, max_len):
-        self.texts     = texts
-        self.labels    = labels
-        self.tokenizer = tokenizer
-        self.max_len   = max_len
-
-    def __len__(self):
-        return len(self.texts)
-
-    def __getitem__(self, idx):
-        encoding = self.tokenizer(
-            str(self.texts[idx]),
-            max_length     = self.max_len,
-            padding        = 'max_length',
-            truncation     = True,
-            return_tensors = 'pt'
-        )
-        return {
-            'input_ids'     : encoding['input_ids'].squeeze(),
-            'attention_mask': encoding['attention_mask'].squeeze(),
-            'labels'        : torch.tensor(
-                self.labels[idx], dtype=torch.long
-            )
-        }
-
-train_texts, test_texts, train_labels, test_labels = \
-    train_test_split(
-        df_all['text'].tolist(),
-        df_all['label'].tolist(),
-        test_size    = 0.2,
-        random_state = SEED,
-        stratify     = df_all['label'].tolist()
-    )
-
-train_dataset = FeedbackDataset(
-    train_texts, train_labels, tokenizer, MAX_LEN
-)
-test_dataset  = FeedbackDataset(
-    test_texts, test_labels, tokenizer, MAX_LEN
-)
-
-train_loader  = DataLoader(
-    train_dataset, batch_size=BATCH_SIZE, shuffle=True
-)
-test_loader   = DataLoader(
-    test_dataset, batch_size=BATCH_SIZE, shuffle=False
-)
-
-print(f"Training samples : {len(train_dataset):,}")
-print(f"Testing  samples : {len(test_dataset):,}")
-print(f"Batch size       : {BATCH_SIZE}")
-print(f"Max length       : {MAX_LEN}")
-print()
-print("[OK] STEP 4 - Dataset ready!")
-print()
-
-
-
-
-# ============================================================
-# STEP 5 - LOAD ROBERTA MODEL
-# ============================================================
-print("=" * 65)
-print("   STEP 5 - LOADING ROBERTA BASE MODEL")
-print("=" * 65)
-print()
-
-print("Loading roberta-base...")
-print()
-
-model = RobertaForSequenceClassification.from_pretrained(
-    'roberta-base',
-    num_labels = 3,
-    id2label   = id2label,
-    label2id   = label2id
-)
-model = model.to(device)
-
-total_params = sum(p.numel() for p in model.parameters())
-trainable    = sum(
-    p.numel() for p in model.parameters()
-    if p.requires_grad
-)
-
-print(f"[OK] Model loaded!")
-print(f"   Total parameters : {total_params:,}")
-print(f"   Trainable params : {trainable:,}")
-print(f"   Classes          : 3")
-print()
-
-
-
-
-# ============================================================
-# STEP 6 - SET UP TRAINING
-# ============================================================
-print("=" * 65)
-print("   STEP 6 - SETTING UP TRAINING")
-print("=" * 65)
-print()
-
-optimizer    = AdamW(
-    model.parameters(),
-    lr           = LR,
-    weight_decay = 0.01
-)
-
-total_steps  = len(train_loader) * EPOCHS
-warmup_steps = int(0.1 * total_steps)
-
-scheduler    = get_linear_schedule_with_warmup(
-    optimizer,
-    num_warmup_steps   = warmup_steps,
-    num_training_steps = total_steps
-)
-
-print(f"Optimizer     : AdamW")
-print(f"Learning rate : {LR}")
-print(f"Epochs        : {EPOCHS}")
-print(f"Total steps   : {total_steps:,}")
-print(f"Warmup steps  : {warmup_steps:,}")
-print()
-print("[OK] STEP 6 - Training setup done!")
-print()
-
-
-
-
-# ============================================================
-# STEP 7 - TRAIN THE MODEL
-# ============================================================
-print("=" * 65)
-print("   STEP 7 - TRAINING ROBERTA BASE")
-print("=" * 65)
-print()
-print("Fine tuning RoBERTa on our IT feedback...")
-print("Watch progress below:")
-print()
-
-train_losses = []
-train_accs   = []
-val_accs     = []
-best_val_acc = 0
-best_epoch   = 0
-
-for epoch in range(EPOCHS):
-    print(f"EPOCH {epoch+1}/{EPOCHS}")
-    print("-" * 65)
-
-    # Training
-    model.train()
-    total_loss = 0
-    correct    = 0
-    total      = 0
-    start      = time.time()
-
-    for batch_idx, batch in enumerate(train_loader):
-        input_ids      = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        labels         = batch['labels'].to(device)
-
-        optimizer.zero_grad()
-
-        outputs = model(
-            input_ids      = input_ids,
-            attention_mask = attention_mask,
-            labels         = labels
-        )
-
-        loss        = outputs.loss
-        logits      = outputs.logits
-        predictions = torch.argmax(logits, dim=-1)
-
-        total_loss += loss.item()
-        correct    += (predictions == labels).sum().item()
-        total      += labels.size(0)
-
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(
-            model.parameters(), 1.0
-        )
-        optimizer.step()
-        scheduler.step()
-
-        if (batch_idx+1) % 50 == 0:
-            elapsed  = time.time() - start
-            avg_loss = total_loss / (batch_idx+1)
-            acc      = correct / total * 100
-            print(f"   Batch {batch_idx+1:3d}/{len(train_loader)} | "
-                  f"Loss: {avg_loss:.4f} | "
-                  f"Acc: {acc:.1f}% | "
-                  f"Time: {elapsed:.0f}s")
-
-    train_loss = total_loss / len(train_loader)
-    train_acc  = correct / total * 100
-    train_losses.append(train_loss)
-    train_accs.append(train_acc)
-
-    # Validation
-    model.eval()
-    val_correct = 0
-    val_total   = 0
-    all_preds   = []
-    all_labs    = []
-
-    with torch.no_grad():
-        for batch in test_loader:
-            input_ids      = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels         = batch['labels'].to(device)
-
-            outputs     = model(
-                input_ids      = input_ids,
-                attention_mask = attention_mask
-            )
-            predictions = torch.argmax(
-                outputs.logits, dim=-1
-            )
-
-            val_correct += (
-                predictions == labels
-            ).sum().item()
-            val_total   += labels.size(0)
-            all_preds.extend(predictions.cpu().numpy())
-            all_labs.extend(labels.cpu().numpy())
-
-    val_acc = val_correct / val_total * 100
-    val_accs.append(val_acc)
-
-    print()
-    print(f"   Train Loss : {train_loss:.4f}")
-    print(f"   Train Acc  : {train_acc:.1f}%")
-    print(f"   Val Acc    : {val_acc:.1f}%")
-    print()
-
-    if val_acc > best_val_acc:
-        best_val_acc = val_acc
-        best_epoch   = epoch + 1
-        model.save_pretrained('best_roberta_model')
-        tokenizer.save_pretrained('best_roberta_model')
-        print(f"   [SAVED] Best model! Val Acc: {val_acc:.1f}%")
-        print()
-
-print(f"[OK] Training complete!")
-print(f"   Best Val Accuracy : {best_val_acc:.1f}%")
-print(f"   Best Epoch        : {best_epoch}")
-print()
-
-
-
-
-# ============================================================
-# STEP 8 - EVALUATE BEST MODEL
-# ============================================================
-print("=" * 65)
-print("   STEP 8 - EVALUATING BEST MODEL")
-print("=" * 65)
-print()
-
-print("Loading best saved model...")
-model = RobertaForSequenceClassification.from_pretrained(
-    'best_roberta_model'
-)
-model = model.to(device)
-model.eval()
-
-all_preds  = []
-all_labels = []
-
-with torch.no_grad():
-    for batch in test_loader:
-        input_ids      = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        labels         = batch['labels'].to(device)
-
-        outputs     = model(
-            input_ids      = input_ids,
-            attention_mask = attention_mask
-        )
-        predictions = torch.argmax(
-            outputs.logits, dim=-1
-        )
-        all_preds.extend(predictions.cpu().numpy())
-        all_labels.extend(labels.cpu().numpy())
-
-final_acc = accuracy_score(all_labels, all_preds) * 100
-
-print(f"Final Accuracy : {final_acc:.1f}%")
-print()
-print("Classification Report:")
-print("-" * 65)
-print(classification_report(
-    all_labels, all_preds,
-    target_names=['Negative','Neutral','Positive']
-))
-print("[OK] STEP 8 - Evaluation done!")
-print()
-
-
-
-
-# ============================================================
-# STEP 9 - PREDICTION FUNCTION
-# ============================================================
-print("=" * 65)
-print("   STEP 9 - PREDICTION FUNCTION")
-print("=" * 65)
-print()
-
-def predict_sentiment(text):
-    model.eval()
-    encoding = tokenizer(
-        str(text),
-        max_length     = MAX_LEN,
-        padding        = 'max_length',
-        truncation     = True,
-        return_tensors = 'pt'
-    )
-    input_ids      = encoding['input_ids'].to(device)
-    attention_mask = encoding['attention_mask'].to(device)
-
-    with torch.no_grad():
-        outputs    = model(
-            input_ids      = input_ids,
-            attention_mask = attention_mask
-        )
-        probs      = torch.softmax(outputs.logits, dim=-1)
-        pred_class = torch.argmax(probs, dim=-1).item()
-        confidence = round(
-            probs[0][pred_class].item() * 100, 2
-        )
-
-    sentiment = id2label[pred_class]
-
-    if sentiment == 'Positive':
-        csat, dsat = 1, 0
-        nps        = 9
-        nps_cat    = 'Promoter'
-    elif sentiment == 'Negative':
-        csat, dsat = 0, 1
-        nps        = 2
-        nps_cat    = 'Detractor'
-    else:
-        csat, dsat = 0, 0
-        nps        = 6
-        nps_cat    = 'Passive'
-
-    return sentiment, confidence, csat, dsat, nps, nps_cat
-
-print("Logic:")
-print("   Positive → CSAT=1 DSAT=0 NPS=9 Promoter")
-print("   Negative → CSAT=0 DSAT=1 NPS=2 Detractor")
-print("   Neutral  → CSAT=0 DSAT=0 NPS=6 Passive")
-print()
-print("[OK] STEP 9 - Function ready!")
-print()
-
-
-
-
-# ============================================================
-# STEP 10 - PREDICT ON DATASETS
-# ============================================================
-print("=" * 65)
-print("   STEP 10 - PREDICTING ON DATASETS")
-print("=" * 65)
-print()
-
-int_acc = None
-ext_acc = None
-
-# Internal predictions
-if USE_INTERNAL and df_internal is not None:
-    total_int       = len(df_internal)
-    int_sentiments  = []
-    int_confidences = []
-    int_csat_preds  = []
-    int_dsat_preds  = []
-
-    print(f"Predicting internal : {total_int:,} feedbacks...")
-    start = time.time()
-
-    for i, fb in enumerate(df_internal['Customer_Feedback']):
-        sent, conf, csat, dsat, nps, nps_cat = \
-            predict_sentiment(str(fb))
-        int_sentiments.append(sent)
-        int_confidences.append(conf)
-        int_csat_preds.append(csat)
-        int_dsat_preds.append(dsat)
-
-        if (i+1) % 500 == 0 or (i+1) == total_int:
-            elapsed = time.time() - start
-            print(f"   {i+1:,}/{total_int:,} "
-                  f"({(i+1)/total_int*100:.1f}%) | "
-                  f"Time: {elapsed:.0f}s")
-
-    int_correct = sum(
-        1 for p, a in zip(
-            int_sentiments,
-            df_internal['Predicted_Sentiment']
-        ) if p == a
-    )
-    int_acc = int_correct / total_int * 100
-
-    df_internal['HF_Sentiment'] = int_sentiments
-    df_internal['HF_Confidence']= int_confidences
-    df_internal['HF_CSAT']      = int_csat_preds
-    df_internal['HF_DSAT']      = int_dsat_preds
-
-    int_csat = sum(int_csat_preds)
-    int_dsat = sum(int_dsat_preds)
-    int_pos  = int_sentiments.count('Positive')
-    int_neg  = int_sentiments.count('Negative')
-    int_neu  = int_sentiments.count('Neutral')
-    int_sla  = len(df_internal[df_internal.SLA_Breached=='Yes'])
-
-    print()
-    print(f"[OK] Internal accuracy : {int_acc:.1f}%")
-    print()
-
-# External predictions
-if USE_EXTERNAL and df_external is not None:
-    total_ext       = len(df_external)
-    ext_sentiments  = []
-    ext_confidences = []
-    ext_csat_preds  = []
-    ext_dsat_preds  = []
-
-    print(f"Predicting external : {total_ext:,} feedbacks...")
-    start = time.time()
-
-    for i, fb in enumerate(df_external['Client_Feedback']):
-        sent, conf, csat, dsat, nps, nps_cat = \
-            predict_sentiment(str(fb))
-        ext_sentiments.append(sent)
-        ext_confidences.append(conf)
-        ext_csat_preds.append(csat)
-        ext_dsat_preds.append(dsat)
-
-        if (i+1) % 500 == 0 or (i+1) == total_ext:
-            elapsed = time.time() - start
-            print(f"   {i+1:,}/{total_ext:,} "
-                  f"({(i+1)/total_ext*100:.1f}%) | "
-                  f"Time: {elapsed:.0f}s")
-
-    ext_correct = sum(
-        1 for p, a in zip(
-            ext_sentiments,
-            df_external['Predicted_Sentiment']
-        ) if p == a
-    )
-    ext_acc = ext_correct / total_ext * 100
-
-    df_external['HF_Sentiment'] = ext_sentiments
-    df_external['HF_Confidence']= ext_confidences
-    df_external['HF_CSAT']      = ext_csat_preds
-    df_external['HF_DSAT']      = ext_dsat_preds
-
-    ext_csat = sum(ext_csat_preds)
-    ext_dsat = sum(ext_dsat_preds)
-    ext_pos  = ext_sentiments.count('Positive')
-    ext_neg  = ext_sentiments.count('Negative')
-    ext_neu  = ext_sentiments.count('Neutral')
-    ext_sla  = len(df_external[df_external.SLA_Breached=='Yes'])
-
-    print()
-    print(f"[OK] External accuracy : {ext_acc:.1f}%")
-    print()
-
-
-
-
-# ============================================================
-# STEP 11 - SHOW RESULTS
-# ============================================================
-print("=" * 65)
-print("   STEP 11 - RESULTS")
-print("=" * 65)
-print()
-
-if USE_INTERNAL and df_internal is not None:
-    print("INTERNAL EMPLOYEE FEEDBACK:")
-    print(f"   Total    : {total_int:,}")
-    print(f"   Positive : {int_pos:,} ({int_pos/total_int*100:.1f}%)")
-    print(f"   Negative : {int_neg:,} ({int_neg/total_int*100:.1f}%)")
-    print(f"   Neutral  : {int_neu:,} ({int_neu/total_int*100:.1f}%)")
-    print(f"   CSAT%    : {int_csat/total_int*100:.1f}%")
-    print(f"   DSAT%    : {int_dsat/total_int*100:.1f}%")
-    print(f"   SLA%     : {int_sla/total_int*100:.1f}%")
-    print(f"   Accuracy : {int_acc:.1f}%")
-    print()
-
-if USE_EXTERNAL and df_external is not None:
-    print("EXTERNAL CLIENT FEEDBACK:")
-    print(f"   Total    : {total_ext:,}")
-    print(f"   Positive : {ext_pos:,} ({ext_pos/total_ext*100:.1f}%)")
-    print(f"   Negative : {ext_neg:,} ({ext_neg/total_ext*100:.1f}%)")
-    print(f"   Neutral  : {ext_neu:,} ({ext_neu/total_ext*100:.1f}%)")
-    print(f"   CSAT%    : {ext_csat/total_ext*100:.1f}%")
-    print(f"   DSAT%    : {ext_dsat/total_ext*100:.1f}%")
-    print(f"   SLA%     : {ext_sla/total_ext*100:.1f}%")
-    print(f"   Accuracy : {ext_acc:.1f}%")
-    print()
-
-print("ACCURACY COMPARISON:")
-if USE_INTERNAL:
-    print(f"   Internal BiLSTM     : 54%")
-    print(f"   Internal DistilBERT : 66%")
-    print(f"   Internal RoBERTa    : {int_acc:.1f}%")
-    print(f"   Improvement         : +{int_acc-54:.1f}%")
-    print()
-if USE_EXTERNAL:
-    print(f"   External BiLSTM     : 62%")
-    print(f"   External DistilBERT : 66%")
-    print(f"   External RoBERTa    : {ext_acc:.1f}%")
-    print(f"   Improvement         : +{ext_acc-62:.1f}%")
-print()
-
-
-
-
-# ============================================================
-# STEP 12 - SAMPLE RESULTS (50 feedbacks)
-# ============================================================
-print("=" * 65)
-print("   STEP 12 - SAMPLE RESULTS (50 feedbacks)")
-print("=" * 65)
-print()
-
-if USE_INTERNAL and df_internal is not None:
-    print("INTERNAL SAMPLES:")
-    print("=" * 65)
-    sample    = df_internal.sample(
-        50, random_state=42
-    ).reset_index(drop=True)
-    correct_s = 0
-    wrong_s   = 0
-
-    for i in range(50):
-        fb          = sample['Customer_Feedback'].iloc[i]
-        employee    = sample['Employee_Name'].iloc[i]
-        dept        = sample['Department'].iloc[i]
-        issue       = sample['Issue_Category'].iloc[i]
-        actual_sent = sample['Predicted_Sentiment'].iloc[i]
-        actual_csat = sample['CSAT'].iloc[i]
-        actual_dsat = sample['DSAT'].iloc[i]
-        actual_nps  = sample['NPS_Score'].iloc[i]
-        actual_cat  = sample['NPS_Category'].iloc[i]
-        pred_sent   = sample['HF_Sentiment'].iloc[i]
-        pred_c      = sample['HF_CSAT'].iloc[i]
-        pred_d      = sample['HF_DSAT'].iloc[i]
-        conf        = sample['HF_Confidence'].iloc[i]
-        bar         = "#" * int(conf // 5)
-
-        if pred_sent == actual_sent:
-            correct_s += 1
-            match = "[CORRECT]"
-        else:
-            wrong_s += 1
-            match = "[WRONG]  "
-
-        print(f"[{i+1:2d}] Employee  : {employee} ({dept})")
-        print(f"     Issue    : {issue}")
-        print(f"     Feedback : {fb[:80]}...")
-        print(f"     Predicted: {pred_sent:10s} | {bar} {conf}%")
-        print(f"     CSAT:{pred_c} DSAT:{pred_d}")
-        print(f"     Actual   : {actual_sent:10s} | "
-              f"CSAT:{actual_csat} DSAT:{actual_dsat} | "
-              f"NPS:{actual_nps} {actual_cat} | {match}")
-        print("-" * 65)
-
-    print(f"\nInternal Sample: {correct_s}/50 ({correct_s/50*100:.1f}%)\n")
-
-if USE_EXTERNAL and df_external is not None:
-    print("EXTERNAL SAMPLES:")
-    print("=" * 65)
-    sample    = df_external.sample(
-        50, random_state=42
-    ).reset_index(drop=True)
-    correct_s = 0
-    wrong_s   = 0
-
-    for i in range(50):
-        fb          = sample['Client_Feedback'].iloc[i]
-        company     = sample['Client_Company'].iloc[i]
-        industry    = sample['Industry'].iloc[i]
-        actual_sent = sample['Predicted_Sentiment'].iloc[i]
-        actual_csat = sample['CSAT'].iloc[i]
-        actual_dsat = sample['DSAT'].iloc[i]
-        actual_nps  = sample['NPS_Score'].iloc[i]
-        actual_cat  = sample['NPS_Category'].iloc[i]
-        pred_sent   = sample['HF_Sentiment'].iloc[i]
-        pred_c      = sample['HF_CSAT'].iloc[i]
-        pred_d      = sample['HF_DSAT'].iloc[i]
-        conf        = sample['HF_Confidence'].iloc[i]
-        bar         = "#" * int(conf // 5)
-
-        if pred_sent == actual_sent:
-            correct_s += 1
-            match = "[CORRECT]"
-        else:
-            wrong_s += 1
-            match = "[WRONG]  "
-
-        print(f"[{i+1:2d}] Company   : {company} ({industry})")
-        print(f"     Feedback : {fb[:80]}...")
-        print(f"     Predicted: {pred_sent:10s} | {bar} {conf}%")
-        print(f"     CSAT:{pred_c} DSAT:{pred_d}")
-        print(f"     Actual   : {actual_sent:10s} | "
-              f"CSAT:{actual_csat} DSAT:{actual_dsat} | "
-              f"NPS:{actual_nps} {actual_cat} | {match}")
-        print("-" * 65)
-
-    print(f"\nExternal Sample: {correct_s}/50 ({correct_s/50*100:.1f}%)\n")
-
-
-
-
-# ============================================================
-# STEP 13 - BUSINESS INSIGHTS
-# ============================================================
-print("=" * 65)
-print("   STEP 13 - BUSINESS INSIGHTS")
-print("=" * 65)
-print()
-
-if USE_INTERNAL and df_internal is not None:
-    print("INTERNAL - CSAT% by Department:")
-    for dept, val in df_internal.groupby('Department')['CSAT']\
-            .mean().sort_values(ascending=False).items():
-        bar = "#" * int(val*20)
-        print(f"   {dept:20s} : {val*100:.1f}% {bar}")
-    print()
-
-    print("INTERNAL - DSAT% by Department:")
-    for dept, val in df_internal.groupby('Department')['DSAT']\
-            .mean().sort_values(ascending=False).items():
-        bar = "#" * int(val*20)
-        print(f"   {dept:20s} : {val*100:.1f}% {bar}")
-    print()
-
-    print("INTERNAL - CSAT% by Issue Category:")
-    for issue, val in df_internal.groupby('Issue_Category')['CSAT']\
-            .mean().sort_values(ascending=False).items():
-        print(f"   {issue:25s} : {val*100:.1f}%")
-    print()
-
-    print("INTERNAL - Best Agent by CSAT%:")
-    for agent, val in df_internal.groupby('Assigned_Agent')['CSAT']\
-            .mean().sort_values(ascending=False).items():
-        print(f"   {agent:20s} : {val*100:.1f}%")
-    print()
-
-    print("INTERNAL - SLA Breach by Priority:")
-    for pri, grp in df_internal.groupby('Priority'):
-        breach = len(grp[grp['SLA_Breached']=='Yes'])
-        print(f"   {pri} : {breach:,}/{len(grp):,} "
-              f"({breach/len(grp)*100:.1f}% breached)")
-    print()
-
-if USE_EXTERNAL and df_external is not None:
-    print("EXTERNAL - CSAT% by Industry:")
-    for ind, val in df_external.groupby('Industry')['CSAT']\
-            .mean().sort_values(ascending=False).items():
-        bar = "#" * int(val*20)
-        print(f"   {ind:20s} : {val*100:.1f}% {bar}")
-    print()
-
-    print("EXTERNAL - DSAT% by Industry:")
-    for ind, val in df_external.groupby('Industry')['DSAT']\
-            .mean().sort_values(ascending=False).items():
-        bar = "#" * int(val*20)
-        print(f"   {ind:20s} : {val*100:.1f}% {bar}")
-    print()
-
-    print("EXTERNAL - CSAT% by Project Type:")
-    for proj, val in df_external.groupby('Project_Type')['CSAT']\
-            .mean().sort_values(ascending=False).items():
-        print(f"   {proj:35s} : {val*100:.1f}%")
-    print()
-
-print("[OK] STEP 13 - Insights done!")
-print()
-
-
-
-
-# ============================================================
-# STEP 14 - VISUALIZATIONS
-# ============================================================
-print("=" * 65)
-print("   STEP 14 - GENERATING VISUALIZATIONS")
-print("=" * 65)
-print()
-
-fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-fig.suptitle(
-    'SentimentIQ - RoBERTa Fine Tuned Results',
-    fontsize=16, fontweight='bold'
-)
-
-# Graph 1 - Internal or External Sentiment Pie
-if USE_INTERNAL and df_internal is not None:
-    axes[0,0].pie(
-        [int_pos, int_neg, int_neu],
-        labels=[f'Positive\n{int_pos:,}',
-                f'Negative\n{int_neg:,}',
-                f'Neutral\n{int_neu:,}'],
-        colors=['#22c55e','#ef4444','#3b82f6'],
-        autopct='%1.1f%%', startangle=90
-    )
-    axes[0,0].set_title('Internal Sentiment',
-                         fontweight='bold')
-elif USE_EXTERNAL and df_external is not None:
-    axes[0,0].pie(
-        [ext_pos, ext_neg, ext_neu],
-        labels=[f'Positive\n{ext_pos:,}',
-                f'Negative\n{ext_neg:,}',
-                f'Neutral\n{ext_neu:,}'],
-        colors=['#22c55e','#ef4444','#3b82f6'],
-        autopct='%1.1f%%', startangle=90
-    )
-    axes[0,0].set_title('External Sentiment',
-                         fontweight='bold')
-
-# Graph 2 - External or Internal Sentiment Pie
-if USE_EXTERNAL and df_external is not None:
-    axes[0,1].pie(
-        [ext_pos, ext_neg, ext_neu],
-        labels=[f'Positive\n{ext_pos:,}',
-                f'Negative\n{ext_neg:,}',
-                f'Neutral\n{ext_neu:,}'],
-        colors=['#22c55e','#ef4444','#3b82f6'],
-        autopct='%1.1f%%', startangle=90
-    )
-    axes[0,1].set_title('External Sentiment',
-                         fontweight='bold')
-elif USE_INTERNAL and df_internal is not None:
-    axes[0,1].pie(
-        [int_pos, int_neg, int_neu],
-        labels=[f'Positive\n{int_pos:,}',
-                f'Negative\n{int_neg:,}',
-                f'Neutral\n{int_neu:,}'],
-        colors=['#22c55e','#ef4444','#3b82f6'],
-        autopct='%1.1f%%', startangle=90
-    )
-    axes[0,1].set_title('Internal Sentiment',
-                         fontweight='bold')
-
-# Graph 3 - Accuracy Comparison
-models   = ['BiLSTM', 'DistilBERT',
-            'Twitter\nRoBERTa', 'Fine Tuned\nRoBERTa']
-ref_acc  = int_acc if USE_INTERNAL else ext_acc
-ref_base = 54 if USE_INTERNAL else 62
-accs     = [ref_base, 66, 75, round(ref_acc, 1)]
-bar_cols = ['#94a3b8','#60a5fa','#f97316','#22c55e']
-bars3    = axes[0,2].bar(models, accs, color=bar_cols)
-axes[0,2].set_title('Accuracy Comparison',
-                     fontweight='bold')
-axes[0,2].set_ylabel('Accuracy %')
-axes[0,2].set_ylim(0, 100)
-for bar, val in zip(bars3, accs):
-    axes[0,2].text(
-        bar.get_x()+bar.get_width()/2,
-        bar.get_height()+1,
-        f'{val}%',
-        ha='center', fontweight='bold', fontsize=9
-    )
-
-# Graph 4 - CSAT by group
-if USE_INTERNAL and df_internal is not None:
-    dept_csat = df_internal.groupby(
-        'Department'
-    )['CSAT'].mean()*100
-    dept_csat.sort_values().plot(
-        kind='barh', ax=axes[1,0], color='#22c55e'
-    )
-    axes[1,0].set_title('CSAT% by Department',
-                         fontweight='bold')
-    axes[1,0].set_xlabel('CSAT %')
-elif USE_EXTERNAL and df_external is not None:
-    ind_csat = df_external.groupby(
-        'Industry'
-    )['CSAT'].mean()*100
-    ind_csat.sort_values().plot(
-        kind='barh', ax=axes[1,0], color='#22c55e'
-    )
-    axes[1,0].set_title('CSAT% by Industry',
-                         fontweight='bold')
-    axes[1,0].set_xlabel('CSAT %')
-
-# Graph 5 - DSAT by group
-if USE_INTERNAL and df_internal is not None:
-    dept_dsat = df_internal.groupby(
-        'Department'
-    )['DSAT'].mean()*100
-    dept_dsat.sort_values(ascending=False).plot(
-        kind='bar', ax=axes[1,1], color='#ef4444'
-    )
-    axes[1,1].set_title('DSAT% by Department',
-                         fontweight='bold')
-    axes[1,1].set_ylabel('DSAT %')
-    axes[1,1].tick_params(axis='x', rotation=45)
-elif USE_EXTERNAL and df_external is not None:
-    ind_dsat = df_external.groupby(
-        'Industry'
-    )['DSAT'].mean()*100
-    ind_dsat.sort_values(ascending=False).plot(
-        kind='bar', ax=axes[1,1], color='#ef4444'
-    )
-    axes[1,1].set_title('DSAT% by Industry',
-                         fontweight='bold')
-    axes[1,1].set_ylabel('DSAT %')
-    axes[1,1].tick_params(axis='x', rotation=45)
-
-# Graph 6 - Training Progress
-epochs_range = range(1, EPOCHS+1)
-axes[1,2].plot(
-    epochs_range, train_accs,
-    'o-', color='#2E75B6',
-    linewidth=2, label='Train Acc'
-)
-axes[1,2].plot(
-    epochs_range, val_accs,
-    's--', color='#22c55e',
-    linewidth=2, label='Val Acc'
-)
-axes[1,2].set_title('Training Progress',
-                     fontweight='bold')
-axes[1,2].set_xlabel('Epoch')
-axes[1,2].set_ylabel('Accuracy %')
-axes[1,2].set_ylim(0, 100)
-axes[1,2].legend()
-axes[1,2].grid(alpha=0.3)
-
-plt.tight_layout()
-plt.savefig('roberta_finetuned_graph.png',
-            dpi=150, bbox_inches='tight')
-print("[OK] Graph saved as roberta_finetuned_graph.png")
-plt.show()
-print()
-
-
-
-
-# ============================================================
-# STEP 15 - SAVE ALL RESULTS
-# ============================================================
-print("=" * 65)
-print("   STEP 15 - SAVING RESULTS")
-print("=" * 65)
-print()
-
-if USE_INTERNAL and df_internal is not None:
-    df_internal.to_csv(
-        'roberta_internal_results.csv', index=False
-    )
-    print("[OK] Saved: roberta_internal_results.csv")
-
-if USE_EXTERNAL and df_external is not None:
-    df_external.to_csv(
-        'roberta_external_results.csv', index=False
-    )
-    print("[OK] Saved: roberta_external_results.csv")
-
-print()
-
-
-
-
-# ============================================================
-# FINAL SUMMARY
-# ============================================================
-print("=" * 65)
-print("   SENTIMENTIQ - ROBERTA FINE TUNED COMPLETE")
-print("=" * 65)
-print()
-print(f"   Datasets used:")
-print(f"   Internal : {USE_INTERNAL}")
-print(f"   External : {USE_EXTERNAL}")
-print()
-
-if USE_INTERNAL and df_internal is not None:
-    print(f"   INTERNAL:")
-    print(f"   Total    : {total_int:,}")
-    print(f"   CSAT%    : {int_csat/total_int*100:.1f}%")
-    print(f"   DSAT%    : {int_dsat/total_int*100:.1f}%")
-    print(f"   Accuracy : {int_acc:.1f}%")
-    print()
-
-if USE_EXTERNAL and df_external is not None:
-    print(f"   EXTERNAL:")
-    print(f"   Total    : {total_ext:,}")
-    print(f"   CSAT%    : {ext_csat/total_ext*100:.1f}%")
-    print(f"   DSAT%    : {ext_dsat/total_ext*100:.1f}%")
-    print(f"   Accuracy : {ext_acc:.1f}%")
-    print()
-
-print("   Model saved to : best_roberta_model/")
-print("   Use this for   : all future predictions!")
-print()
-print("   NPS Links:")
-print("   Positive → CSAT=1 DSAT=0 NPS=9 Promoter")
-print("   Negative → CSAT=0 DSAT=1 NPS=2 Detractor")
-print("   Neutral  → CSAT=0 DSAT=0 NPS=6 Passive")
-print()
-print("   Output Files:")
-print("   best_roberta_model/          - Saved model")
-print("   roberta_internal_results.csv")
-print("   roberta_external_results.csv")
-print("   roberta_finetuned_graph.png")
-print("=" * 65)
+      }
+    })
+
+    if (sortCol) {
+      data.sort((a, b) => {
+        const av = String(a[sortCol] ?? '')
+        const bv = String(b[sortCol] ?? '')
+        const nA = parseFloat(av), nB = parseFloat(bv)
+        const cmp = (!isNaN(nA) && !isNaN(nB))
+          ? nA - nB : av.localeCompare(bv)
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    }
+    return data
+  }, [rows, search, colFilter, sortCol, sortDir])
+
+  const uniqueValues = useMemo(() => {
+    const map = {}
+    if (!rows.length) return map
+    Object.keys(rows[0]).forEach(col => {
+      const vals = [...new Set(rows.map(r => String(r[col])))]
+      if (vals.length <= 30) map[col] = vals
+    })
+    return map
+  }, [rows])
+
+  return {
+    processed, search, setSearch,
+    sortCol, sortDir, handleSort,
+    colFilter, setFilter,
+    uniqueValues, clearFilters,
+  }
+}
+
+
+
+
+
+
+import useTableData from '../hooks/useTableData.js'
+
+const C = {
+  bg2:'#161b22', panel:'#13181f', border:'#21262d',
+  cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
+  amber:'#d29922', violet:'#bc8cff',
+  text:'#e6edf3', sub:'#8b949e', dim:'#484f58',
+}
+
+const BADGE_MAP = {
+  Positive:{bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  Negative:{bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  Neutral:{bg:'#d2992218',c:'#d29922',bd:'#d2992240'},
+  Promoter:{bg:'#58a6ff18',c:'#58a6ff',bd:'#58a6ff40'},
+  Detractor:{bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  Passive:{bg:'#bc8cff18',c:'#bc8cff',bd:'#bc8cff40'},
+  Yes:{bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  No:{bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  P1:{bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  P2:{bg:'#d2992218',c:'#d29922',bd:'#d2992240'},
+  P3:{bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  '1':{bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  '0':{bg:'#48484818',c:'#484f58',bd:'#48484840'},
+}
+const BADGE_COLS = new Set([
+  'Predicted_Sentiment','NPS_Category','SLA_Breached',
+  'Priority','CSAT','DSAT','Status','status',
+])
+const EMAIL_COLS = new Set([
+  'Employee_Email','Client_Email','email','Email',
+])
+
+function Badge({ v }) {
+  const s = BADGE_MAP[String(v)]
+  if (!s) return <span style={{ color: C.text, fontSize: 11 }}>{v}</span>
+  return (
+    <span style={{
+      background: s.bg, color: s.c, border: `1px solid ${s.bd}`,
+      borderRadius: 5, padding: '2px 9px',
+      fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+    }}>{v}</span>
+  )
+}
+
+export default function DataTable({ rows }) {
+  const {
+    processed, search, setSearch,
+    sortCol, sortDir, handleSort,
+    colFilter, setFilter,
+    uniqueValues, clearFilters,
+  } = useTableData(rows)
+
+  const cols = rows.length ? Object.keys(rows[0]) : []
+  const hasFilters = search || Object.values(colFilter).some(v => v && v !== 'All')
+
+  return (
+    <div>
+      {/* toolbar */}
+      <div style={{
+        display: 'flex', gap: 10, alignItems: 'center',
+        marginBottom: 12, flexWrap: 'wrap',
+      }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+          <span style={{
+            position: 'absolute', left: 11, top: '50%',
+            transform: 'translateY(-50%)', color: C.dim, fontSize: 13,
+          }}>🔍</span>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search across all columns…"
+            style={{
+              width: '100%', background: C.bg2,
+              border: `1px solid ${C.border}`, borderRadius: 8,
+              padding: '8px 12px 8px 32px',
+              color: C.text, fontSize: 12,
+              fontFamily: 'inherit', outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+
+        <div style={{ fontSize: 11, color: C.sub }}>
+          Showing{' '}
+          <strong style={{ color: C.cyan }}>{processed.length}</strong>
+          {' '}of {rows.length} rows
+        </div>
+
+        {hasFilters && (
+          <button onClick={clearFilters} style={{
+            background: C.red + '18', border: `1px solid ${C.red}50`,
+            color: C.red, borderRadius: 7, padding: '6px 12px',
+            fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}>✕ Clear Filters</button>
+        )}
+      </div>
+
+      {/* table */}
+      <div style={{
+        background: C.panel, border: `1px solid ${C.border}`,
+        borderRadius: 12, overflow: 'hidden',
+      }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '62vh' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+
+              {/* row 1 — column names + sort arrows */}
+              <tr style={{ background: C.bg2 }}>
+                {cols.map(col => (
+                  <th
+                    key={col}
+                    onClick={() => handleSort(col)}
+                    style={{
+                      padding: '10px 14px', textAlign: 'left',
+                      color: C.cyan, fontWeight: 700, fontSize: 10,
+                      letterSpacing: 1.4, textTransform: 'uppercase',
+                      whiteSpace: 'nowrap',
+                      borderBottom: `1px solid ${C.border}`,
+                      cursor: 'pointer', userSelect: 'none',
+                      position: 'sticky', top: 0, background: C.bg2,
+                    }}
+                  >
+                    {col.replace(/_/g, ' ')}
+                    <span style={{ marginLeft: 4, color: sortCol === col ? C.cyan : C.dim }}>
+                      {sortCol === col ? (sortDir === 'asc' ? '↑' : '↓') : '⇅'}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+
+              {/* row 2 — per-column filter dropdowns */}
+              <tr style={{ background: C.bg2 }}>
+                {cols.map(col => {
+                  const opts = uniqueValues[col]
+                  return (
+                    <th key={col} style={{
+                      padding: '4px 8px',
+                      borderBottom: `1px solid ${C.border}`,
+                      position: 'sticky', top: 38, background: C.bg2,
+                    }}>
+                      {opts ? (
+                        <select
+                          value={colFilter[col] || 'All'}
+                          onChange={e => setFilter(col, e.target.value)}
+                          style={{
+                            background: C.panel,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 5,
+                            color: colFilter[col] && colFilter[col] !== 'All'
+                              ? C.cyan : C.dim,
+                            fontSize: 10, padding: '3px 6px',
+                            fontFamily: 'inherit', cursor: 'pointer',
+                            width: '100%', outline: 'none',
+                          }}
+                        >
+                          <option value="All">All</option>
+                          {opts.sort().map(v => (
+                            <option key={v} value={v}>{v || '(empty)'}</option>
+                          ))}
+                        </select>
+                      ) : <div style={{ height: 24 }} />}
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+
+            <tbody>
+              {processed.map((row, ri) => (
+                <tr
+                  key={ri}
+                  style={{
+                    borderBottom: `1px solid ${C.border}22`,
+                    background: ri % 2 ? '#ffffff04' : 'transparent',
+                    transition: 'background .12s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = C.cyan + '0a')}
+                  onMouseLeave={e => (e.currentTarget.style.background = ri % 2 ? '#ffffff04' : 'transparent')}
+                >
+                  {cols.map(col => (
+                    <td key={col} style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
+                      {BADGE_COLS.has(col) ? (
+                        <Badge v={String(row[col])} />
+                      ) : EMAIL_COLS.has(col) ? (
+                        <span style={{ color: C.violet, fontSize: 11 }}>{row[col]}</span>
+                      ) : (
+                        <span style={{ color: C.text }}>
+                          {String(row[col]).length > 48
+                            ? String(row[col]).slice(0, 48) + '…'
+                            : row[col]}
+                        </span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+
+              {!processed.length && (
+                <tr>
+                  <td colSpan={cols.length}
+                    style={{ padding: 48, textAlign: 'center', color: C.dim }}>
+                    No records match your filters
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <style>{`
+        select option { background: ${C.bg2}; color: ${C.text}; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: #07090f; }
+        ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
+      `}</style>
+    </div>
+  )
+}
+
+
+
+
+import { useState, useRef } from 'react'
+import DataTable    from '../components/DataTable.jsx'
+import { readFile } from '../utils/fileParser.js'
+
+const C = {
+  bg0:'#07090f', bg1:'#0d1117', bg2:'#161b22', panel:'#13181f',
+  border:'#21262d', cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
+  amber:'#d29922', violet:'#bc8cff', sky:'#79c0ff',
+  text:'#e6edf3', sub:'#8b949e', dim:'#484f58',
+}
+
+function StatCard({ label, value, sub, accent }) {
+  return (
+    <div style={{
+      background: C.panel, border: `1px solid ${accent}33`,
+      borderRadius: 12, padding: '16px 20px',
+    }}>
+      <div style={{
+        fontSize: 10, color: C.sub, letterSpacing: 1.5,
+        textTransform: 'uppercase', marginBottom: 6, fontFamily: 'monospace',
+      }}>{label}</div>
+      <div style={{
+        fontSize: 30, fontWeight: 900, color: accent,
+        fontFamily: 'monospace', lineHeight: 1,
+      }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 5 }}>{sub}</div>}
+    </div>
+  )
+}
+
+function Toast({ toast }) {
+  if (!toast) return null
+  return (
+    <div style={{
+      position: 'fixed', top: 16, right: 16, zIndex: 9999,
+      background: C.panel, border: `1px solid ${toast.color}`,
+      borderRadius: 9, padding: '10px 18px',
+      color: toast.color, fontSize: 12, fontWeight: 700,
+      boxShadow: `0 0 24px ${toast.color}30`,
+      fontFamily: "'IBM Plex Mono','Courier New',monospace",
+    }}>
+      {toast.icon} {toast.msg}
+    </div>
+  )
+}
+
+export default function Dashboard({ user, onLogout }) {
+  const [rows,     setRows]     = useState([])
+  const [fileMeta, setFileMeta] = useState(null)
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+  const [toast,    setToast]    = useState(null)
+  const [dragging, setDragging] = useState(false)
+  const fileRef = useRef(null)
+
+  function notify(msg, color, icon = '✓') {
+    setToast({ msg, color, icon })
+    setTimeout(() => setToast(null), 2800)
+  }
+
+  async function processFile(file) {
+    setError(''); setLoading(true)
+    try {
+      const result = await readFile(file)
+      if (!result.rows.length) throw new Error('No data rows found in file')
+      setRows(result.rows)
+      setFileMeta({ name: result.fileName, type: result.type, sheet: result.sheet })
+      notify(`Imported ${result.rows.length.toLocaleString()} rows from "${result.fileName}"`, C.green)
+    } catch (err) {
+      setError(err.message)
+      notify(err.message, C.red, '⚠')
+    }
+    setLoading(false)
+  }
+
+  function onDrop(e) {
+    e.preventDefault(); setDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (file) processFile(file)
+  }
+
+  function exportCSV() {
+    if (!rows.length) return
+    const headers = Object.keys(rows[0]).join(',')
+    const body = rows
+      .map(r => Object.values(r)
+        .map(v => `"${String(v).replace(/"/g,'""')}"`)
+        .join(','))
+      .join('\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([headers+'\n'+body],{type:'text/csv'}))
+    a.download = `sentimentiq_export_${Date.now()}.csv`
+    a.click()
+    notify('CSV exported!', C.green)
+  }
+
+  const total = rows.length
+  const csatN = rows.filter(r => r.CSAT === '1' || r.CSAT === 1).length
+  const dsatN = rows.filter(r => r.DSAT === '1' || r.DSAT === 1).length
+  const slaY  = rows.filter(r => r.SLA_Breached === 'Yes').length
+  const pct   = n => total ? Math.round(n / total * 100) : 0
+
+  const ROLE_COLOR = { Admin:C.red, Manager:C.amber, Developer:C.cyan }
+  const roleColor  = ROLE_COLOR[user.role] || C.violet
+
+  return (
+    <div style={{
+      minHeight: '100vh', background: C.bg0, color: C.text,
+      fontFamily: "'IBM Plex Mono','Courier New',monospace",
+    }}>
+      <Toast toast={toast} />
+
+      {/* header */}
+      <header style={{
+        background: C.bg1, borderBottom: `1px solid ${C.border}`,
+        height: 56, display: 'flex', alignItems: 'center',
+        padding: '0 24px', gap: 16,
+        position: 'sticky', top: 0, zIndex: 100,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: 8,
+            background: `linear-gradient(135deg,${C.cyan},${C.violet})`,
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontSize: 15,
+          }}>⚡</div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 900, color: C.cyan, letterSpacing: 2 }}>
+              SENTIMENTIQ
+            </div>
+            <div style={{ fontSize: 9, color: C.dim, letterSpacing: 1.5 }}>
+              NTT DATA · AI PLATFORM
+            </div>
+          </div>
+        </div>
+
+        <div style={{ flex: 1 }} />
+
+        {fileMeta && (
+          <div style={{
+            background: C.violet + '12', border: `1px solid ${C.violet}40`,
+            borderRadius: 7, padding: '4px 12px',
+            fontSize: 10, color: C.violet,
+          }}>
+            📁 {fileMeta.name}
+            {fileMeta.sheet && <span style={{ color: C.dim }}> · {fileMeta.sheet}</span>}
+            <span style={{ color: C.dim }}> · {fileMeta.type} · {total.toLocaleString()} rows</span>
+          </div>
+        )}
+
+        <div style={{
+          background: roleColor + '12', border: `1px solid ${roleColor}40`,
+          borderRadius: 7, padding: '4px 12px',
+          fontSize: 10, color: roleColor, fontWeight: 700,
+        }}>
+          👤 {user.name}
+          <span style={{ color: C.dim, fontWeight: 400 }}> · {user.role}</span>
+        </div>
+
+        <button onClick={onLogout} style={{
+          background: C.red + '15', border: `1px solid ${C.red}40`,
+          color: C.red, borderRadius: 7, padding: '5px 14px',
+          fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+        }}>Sign Out</button>
+      </header>
+
+      {/* main */}
+      <main style={{ padding: '22px 24px', maxWidth: 1400, margin: '0 auto' }}>
+
+        <div style={{ marginBottom: 20 }}>
+          <h1 style={{ fontSize: 18, fontWeight: 900, color: C.cyan, margin: 0, letterSpacing: 1 }}>
+            Dashboard
+          </h1>
+          <p style={{ fontSize: 12, color: C.sub, margin: '4px 0 0' }}>
+            Import Excel or CSV · Filter · Sort · Export
+          </p>
+        </div>
+
+        {/* stat cards — shown only when data loaded */}
+        {total > 0 && (
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(4,1fr)',
+            gap: 12, marginBottom: 20,
+          }}>
+            <StatCard label="Total Rows"  value={total.toLocaleString()} sub="records imported"        accent={C.sky}   />
+            <StatCard label="CSAT"        value={`${pct(csatN)}%`}       sub={`${csatN} satisfied`}    accent={C.green} />
+            <StatCard label="DSAT"        value={`${pct(dsatN)}%`}       sub={`${dsatN} dissatisfied`} accent={C.red}   />
+            <StatCard label="SLA Breach"  value={`${pct(slaY)}%`}        sub={`${slaY} breached`}      accent={C.amber} />
+          </div>
+        )}
+
+        {/* import panel */}
+        <div style={{
+          background: C.panel, border: `1px solid ${C.border}`,
+          borderRadius: 14, padding: 20, marginBottom: 20,
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between', marginBottom: 16,
+            flexWrap: 'wrap', gap: 10,
+          }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>Import Data</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                Supports CSV (.csv) and Excel (.xlsx, .xls)
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                ref={fileRef} type="file" accept=".csv,.xlsx,.xls"
+                style={{ display: 'none' }}
+                onChange={e => {
+                  if (e.target.files[0]) processFile(e.target.files[0])
+                  e.target.value = ''
+                }}
+              />
+              <button onClick={() => fileRef.current?.click()} style={{
+                background: C.violet + '18', border: `1px solid ${C.violet}50`,
+                color: C.violet, borderRadius: 8, padding: '7px 18px',
+                fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+              }}>⬆ Browse File</button>
+
+              {rows.length > 0 && (
+                <button onClick={exportCSV} style={{
+                  background: C.green + '18', border: `1px solid ${C.green}50`,
+                  color: C.green, borderRadius: 8, padding: '7px 18px',
+                  fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                }}>⬇ Export CSV</button>
+              )}
+            </div>
+          </div>
+
+          {/* drag drop zone */}
+          <div
+            onDragOver={e => { e.preventDefault(); setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            onClick={() => fileRef.current?.click()}
+            style={{
+              border: `2px dashed ${dragging ? C.cyan : C.border}`,
+              borderRadius: 10, padding: '28px 20px',
+              textAlign: 'center', cursor: 'pointer',
+              background: dragging ? C.cyan + '08' : C.bg2,
+              transition: 'all .2s',
+            }}
+          >
+            {loading ? (
+              <div style={{ color: C.amber, fontSize: 13 }}>⏳ Parsing file…</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 36, marginBottom: 8 }}>{dragging ? '📂' : '📁'}</div>
+                <div style={{
+                  fontSize: 13, fontWeight: 700,
+                  color: dragging ? C.cyan : C.text, marginBottom: 4,
+                }}>
+                  {dragging ? 'Drop to import!' : 'Drag & drop your file here'}
+                </div>
+                <div style={{ fontSize: 11, color: C.dim }}>
+                  or click Browse File above · CSV and Excel accepted
+                </div>
+                {fileMeta && (
+                  <div style={{ marginTop: 10, fontSize: 11, color: C.green, fontWeight: 700 }}>
+                    ✓ {fileMeta.name} loaded — {total.toLocaleString()} rows
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* format badges */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            {[
+              { label:'CSV',      icon:'📄', color:C.green },
+              { label:'Excel XLSX', icon:'📊', color:C.cyan  },
+              { label:'Excel XLS',  icon:'📊', color:C.cyan  },
+            ].map(f => (
+              <div key={f.label} style={{
+                background: f.color + '10', border: `1px solid ${f.color}30`,
+                borderRadius: 7, padding: '5px 12px',
+                fontSize: 10, color: f.color, fontWeight: 700,
+                display: 'flex', alignItems: 'center', gap: 5,
+              }}>
+                {f.icon} {f.label}
+              </div>
+            ))}
+          </div>
+
+          {error && (
+            <div style={{
+              marginTop: 12, background: C.red + '10',
+              border: `1px solid ${C.red}40`, borderRadius: 8,
+              padding: '9px 13px', fontSize: 12, color: C.red, fontWeight: 600,
+            }}>⚠ {error}</div>
+          )}
+        </div>
+
+        {/* table or empty state */}
+        {rows.length > 0 ? (
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>Data Table</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                Click column headers to sort · Dropdowns to filter per column · Search box for global search
+              </div>
+            </div>
+            <DataTable rows={rows} />
+          </div>
+        ) : (
+          <div style={{
+            background: C.panel, border: `1px solid ${C.border}`,
+            borderRadius: 14, padding: '60px 20px', textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 8 }}>
+              No data imported yet
+            </div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 20 }}>
+              Import a CSV or Excel file above to visualise your feedback data
+            </div>
+            <button onClick={() => fileRef.current?.click()} style={{
+              background: `linear-gradient(135deg,${C.cyan},${C.violet})`,
+              border: 'none', borderRadius: 9, padding: '10px 28px',
+              color: '#000', fontSize: 12, fontWeight: 900,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}>⬆ Import File Now</button>
+          </div>
+        )}
+      </main>
+
+      <style>{`
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:${C.bg0}}
+        select option{background:${C.bg2};color:${C.text}}
+        input::placeholder{color:${C.dim}}
+        button:active{transform:scale(.97)}
+      `}</style>
+    </div>
+  )
+}
