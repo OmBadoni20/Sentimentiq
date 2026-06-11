@@ -1,695 +1,467 @@
-import { useState, useRef, useMemo } from 'react'
-import DataTable    from '../components/DataTable.jsx'
-import { readFile } from '../utils/fileParser.js'
+import { useState, useMemo } from 'react'
 
-// ── safe recharts import ──────────────────────────────────
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, Cell,
-} from 'recharts'
+const PAGE_SIZE = 200
 
 const C = {
-  bg0:'#07090f', bg1:'#0d1117', bg2:'#161b22', panel:'#13181f',
-  border:'#21262d', cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
-  amber:'#d29922', violet:'#bc8cff', sky:'#79c0ff',
+  bg0:'#07090f', bg2:'#161b22', panel:'#13181f', border:'#21262d',
+  cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
+  amber:'#d29922', violet:'#bc8cff',
   text:'#e6edf3', sub:'#8b949e', dim:'#484f58',
 }
 
-const TT = {
-  background:C.panel, border:`1px solid ${C.border}`,
-  borderRadius:8, fontSize:11, color:C.text,
+const BADGE_MAP = {
+  Positive:  {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  Negative:  {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  Neutral:   {bg:'#d2992218',c:'#d29922',bd:'#d2992240'},
+  Promoter:  {bg:'#58a6ff18',c:'#58a6ff',bd:'#58a6ff40'},
+  Detractor: {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  Passive:   {bg:'#bc8cff18',c:'#bc8cff',bd:'#bc8cff40'},
+  Yes:       {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  No:        {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  P1:        {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
+  P2:        {bg:'#d2992218',c:'#d29922',bd:'#d2992240'},
+  P3:        {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  '1':       {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
+  '0':       {bg:'#48484818',c:'#484f58',bd:'#48484840'},
 }
 
-function findCol(row, ...names) {
-  const keys = Object.keys(row)
-  for (const name of names) {
-    const f = keys.find(
-      k => k.trim().toLowerCase().replace(/\s+/g,'')
-        === name.toLowerCase().replace(/\s+/g,'')
-    )
-    if (f) return f
-  }
-  return null
+const BADGE_COLS = new Set([
+  'Predicted_Sentiment','NPS_Category','SLA_Breached',
+  'Priority','CSAT','DSAT','Status','status',
+  'ISHAPPY','ISSAD','ISPASSIVE',
+])
+const EMAIL_COLS = new Set([
+  'Employee_Email','Client_Email','email','Email',
+  'USER EMAIL','user email','ASSIGNED TOEMAIL',
+])
+
+function Badge({ v }) {
+  const s = BADGE_MAP[String(v)]
+  if (!s) return <span style={{ color:C.text, fontSize:11 }}>{v}</span>
+  return (
+    <span style={{
+      background:s.bg, color:s.c,
+      border:`1px solid ${s.bd}`,
+      borderRadius:5, padding:'2px 9px',
+      fontSize:11, fontWeight:700, whiteSpace:'nowrap',
+    }}>{v}</span>
+  )
 }
 
-function isTrue(val) {
-  if (val === null || val === undefined) return false
-  return val === 1 || val === true ||
-    String(val).trim().toLowerCase() === '1' ||
-    String(val).trim().toLowerCase() === 'true' ||
-    String(val).trim().toLowerCase() === 'yes'
-}
-
-function calcMetrics(rows) {
-  try {
-    if (!rows || !rows.length) return null
-    const s = rows[0]
-
-    const csatCol    = findCol(s,'ISHAPPY','ishappy','CSAT','csat')
-    const dsatCol    = findCol(s,'ISSAD','issad','DSAT','dsat')
-    const passiveCol = findCol(s,'ISPASSIVE','ispassive')
-    const sentCol    = findCol(s,'Predicted_Sentiment','Sentiment','sentiment')
-    const teamCol    = findCol(s,'TEAM','Team','Department','department')
-    const regionCol  = findCol(s,'REGION','Region','Industry','industry')
-
-    let csatN=0, dsatN=0, posN=0, negN=0, neuN=0
-    const byTeam={}, byRegion={}
-
-    rows.forEach(r => {
-      try {
-        const cv = r[csatCol]
-        const dv = r[dsatCol]
-        const pv = r[passiveCol]
-
-        if (csatCol && isTrue(cv)) csatN++
-        if (dsatCol && isTrue(dv)) dsatN++
-
-        if (sentCol) {
-          const sv = String(r[sentCol]??'').trim().toLowerCase()
-          if      (sv==='positive') posN++
-          else if (sv==='negative') negN++
-          else if (sv==='neutral')  neuN++
-        } else {
-          if      (isTrue(cv)) posN++
-          else if (isTrue(dv)) negN++
-          else if (isTrue(pv)) neuN++
-        }
-
-        if (teamCol) {
-          const k = String(r[teamCol]??'').trim()
-          if (k && k!=='nan') {
-            if (!byTeam[k]) byTeam[k]={name:k,csat:0,dsat:0,total:0}
-            byTeam[k].total++
-            if (isTrue(cv)) byTeam[k].csat++
-            if (isTrue(dv)) byTeam[k].dsat++
-          }
-        }
-
-        if (regionCol) {
-          const k = String(r[regionCol]??'').trim()
-          if (k && k!=='nan') {
-            if (!byRegion[k]) byRegion[k]={name:k,csat:0,dsat:0,total:0}
-            byRegion[k].total++
-            if (isTrue(cv)) byRegion[k].csat++
-            if (isTrue(dv)) byRegion[k].dsat++
-          }
-        }
-      } catch(e) { /* skip bad row */ }
-    })
-
-    const total = rows.length
-    const pct   = n => total ? parseFloat((n/total*100).toFixed(1)) : 0
-
-    return {
-      total, csatN, dsatN, posN, negN, neuN,
-      csatPct: pct(csatN), dsatPct: pct(dsatN),
-      posPct:  pct(posN),  negPct:  pct(negN),
-      neuPct:  pct(neuN),
-      teamData: Object.values(byTeam)
-        .map(d=>({
-          name:    d.name,
-          'CSAT%': d.total?parseFloat((d.csat/d.total*100).toFixed(1)):0,
-          'DSAT%': d.total?parseFloat((d.dsat/d.total*100).toFixed(1)):0,
-        }))
-        .sort((a,b)=>b['CSAT%']-a['CSAT%']).slice(0,10),
-      regionData: Object.values(byRegion)
-        .map(d=>({
-          name:    d.name,
-          'CSAT%': d.total?parseFloat((d.csat/d.total*100).toFixed(1)):0,
-          'DSAT%': d.total?parseFloat((d.dsat/d.total*100).toFixed(1)):0,
-        }))
-        .sort((a,b)=>b['CSAT%']-a['CSAT%']).slice(0,10),
-    }
-  } catch(e) {
-    console.error('calcMetrics error:', e)
-    return null
-  }
-}
-
-function KPI({ label, value, sub, accent }) {
+function EmptyTable() {
+  const cols = ['A','B','C','D','E','F','G','H','I','J']
   return (
     <div style={{
-      background:C.panel, border:`1px solid ${accent}33`,
-      borderRadius:12, padding:'16px 20px',
+      background:C.panel, border:`1px solid ${C.border}`,
+      borderRadius:12, overflow:'hidden', position:'relative',
     }}>
+      <div style={{ overflowX:'auto' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+          <thead>
+            <tr style={{ background:C.bg2 }}>
+              <th style={{
+                width:40, padding:'9px 8px',
+                borderBottom:`1px solid ${C.border}`,
+                borderRight:`1px solid ${C.border}`,
+                color:C.dim, fontSize:10, fontWeight:700,
+              }}>#</th>
+              {cols.map(c => (
+                <th key={c} style={{
+                  padding:'9px 40px',
+                  borderBottom:`1px solid ${C.border}`,
+                  borderRight:`1px solid ${C.border}22`,
+                  color:C.dim, fontSize:11, fontWeight:700,
+                  textAlign:'center', minWidth:120,
+                }}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length:12 }, (_,ri) => (
+              <tr key={ri} style={{
+                borderBottom:`1px solid ${C.border}22`,
+                background: ri%2 ? '#ffffff03' : 'transparent',
+              }}>
+                <td style={{
+                  padding:'8px', textAlign:'center',
+                  color:C.dim, fontSize:10, fontWeight:700,
+                  borderRight:`1px solid ${C.border}`,
+                  background:C.bg2+'88',
+                }}>{ri+1}</td>
+                {cols.map(c => (
+                  <td key={c} style={{
+                    padding:'8px 12px', minWidth:120, height:34,
+                    borderRight:`1px solid ${C.border}22`,
+                  }}/>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <div style={{
-        fontSize:10, color:C.sub, letterSpacing:1.5,
-        textTransform:'uppercase', marginBottom:6,
-        fontFamily:'monospace',
-      }}>{label}</div>
-      <div style={{
-        fontSize:30, fontWeight:900, color:accent,
-        fontFamily:'monospace', lineHeight:1,
-      }}>{value}</div>
-      {sub && (
-        <div style={{ fontSize:11, color:C.dim, marginTop:5 }}>
-          {sub}
-        </div>
-      )}
-      <div style={{
-        marginTop:10, height:3,
-        background:accent+'20', borderRadius:2,
+        position:'absolute', top:'50%', left:'50%',
+        transform:'translate(-50%,-50%)',
+        textAlign:'center', pointerEvents:'none',
       }}>
-        <div style={{
-          height:'100%',
-          width:`${Math.min(parseFloat(value)||0, 100)}%`,
-          background:accent, borderRadius:2,
-          transition:'width .5s',
-        }}/>
+        <div style={{ fontSize:32, marginBottom:8 }}>📂</div>
+        <div style={{ fontSize:13, fontWeight:700, color:C.sub }}>
+          Import a file to see data
+        </div>
+        <div style={{ fontSize:11, color:C.dim, marginTop:4 }}>
+          CSV · Excel · JSON · TXT
+        </div>
       </div>
     </div>
   )
 }
 
-function Toast({ toast }) {
-  if (!toast) return null
+function PaginationBar({ page, totalPages, setPage, totalFiltered }) {
+  if (totalPages <= 1) return null
+  const start = (page-1)*PAGE_SIZE+1
+  const end   = Math.min(page*PAGE_SIZE, totalFiltered)
+
+  function pgBtn(label, onClick, disabled, active) {
+    return (
+      <button key={label+active} onClick={onClick} disabled={disabled} style={{
+        background: active ? C.cyan : disabled ? 'transparent' : C.bg2,
+        border:`1px solid ${active ? C.cyan : C.border}`,
+        color: active ? '#000' : disabled ? C.dim : C.text,
+        borderRadius:7, padding:'5px 11px',
+        fontSize:11, fontWeight:700,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        fontFamily:'inherit', opacity: disabled ? 0.4 : 1, minWidth:34,
+      }}>{label}</button>
+    )
+  }
+
+  const from = Math.max(1, page-2)
+  const to   = Math.min(totalPages, page+2)
+  const nums = []
+  for (let i=from; i<=to; i++) nums.push(i)
+
   return (
     <div style={{
-      position:'fixed', top:16, right:16, zIndex:9999,
-      background:C.panel, border:`1px solid ${toast.color}`,
-      borderRadius:9, padding:'10px 18px',
-      color:toast.color, fontSize:12, fontWeight:700,
-      boxShadow:`0 0 24px ${toast.color}30`,
-      fontFamily:'monospace',
-    }}>{toast.icon} {toast.msg}</div>
+      background:C.panel, border:`1px solid ${C.border}`,
+      borderRadius:10, padding:'10px 16px',
+      display:'flex', alignItems:'center',
+      justifyContent:'space-between', flexWrap:'wrap', gap:10,
+    }}>
+      <div style={{ fontSize:11, color:C.sub }}>
+        Rows <strong style={{color:C.cyan}}>{start.toLocaleString()}</strong>
+        {' – '}
+        <strong style={{color:C.cyan}}>{end.toLocaleString()}</strong>
+        {' of '}
+        <strong style={{color:C.text}}>{totalFiltered.toLocaleString()}</strong>
+        {' · Page '}
+        <strong style={{color:C.cyan}}>{page}</strong>
+        {' of '}
+        <strong style={{color:C.text}}>{totalPages}</strong>
+        <span style={{color:C.dim}}> · {PAGE_SIZE}/page</span>
+      </div>
+      <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+        {pgBtn('«', ()=>setPage(1), page===1, false)}
+        {pgBtn('‹', ()=>setPage(p=>p-1), page===1, false)}
+        {from>1 && <>
+          {pgBtn('1', ()=>setPage(1), false, false)}
+          {from>2 && <span style={{color:C.dim,padding:'0 2px'}}>…</span>}
+        </>}
+        {nums.map(p => pgBtn(String(p), ()=>setPage(p), false, p===page))}
+        {to<totalPages && <>
+          {to<totalPages-1 &&
+            <span style={{color:C.dim,padding:'0 2px'}}>…</span>}
+          {pgBtn(String(totalPages), ()=>setPage(totalPages), false, false)}
+        </>}
+        {pgBtn('›', ()=>setPage(p=>p+1), page===totalPages, false)}
+        {pgBtn('»', ()=>setPage(totalPages), page===totalPages, false)}
+      </div>
+    </div>
   )
 }
 
-export default function Dashboard({ user, rows, setRows, onLogout }) {
-  const [fileMeta, setFileMeta] = useState(null)
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState('')
-  const [toast,    setToast]    = useState(null)
-  const [dragging, setDragging] = useState(false)
-  const fileRef = useRef(null)
+export default function DataTable({ rows }) {
 
-  // ALL hooks must be at top — never inside conditions
-  const m = useMemo(() => {
-    try { return calcMetrics(rows) }
-    catch(e) { return null }
-  }, [rows])
+  // ── ALL HOOKS AT TOP — NEVER MOVE THESE ──────────────
+  const [search,    setSearch]    = useState('')
+  const [sortCol,   setSortCol]   = useState(null)
+  const [sortDir,   setSortDir]   = useState('asc')
+  const [colFilter, setColFilter] = useState({})
+  const [page,      setPage]      = useState(1)
 
-  const sentBarData = useMemo(() => {
-    if (!m) return []
-    return [
-      { name:'Positive', value:m.posN,  pct:m.posPct },
-      { name:'Negative', value:m.negN,  pct:m.negPct },
-      { name:'Neutral',  value:m.neuN,  pct:m.neuPct },
-    ]
-  }, [m])
+  // cols and uniqueValues MUST be hooks — keep at top!
+  const safeRows = rows || []
 
-  const csatDsatBar = useMemo(() => {
-    if (!m) return []
-    return [
-      { name:'CSAT', value:m.csatPct, fill:C.green },
-      { name:'DSAT', value:m.dsatPct, fill:C.red   },
-    ]
-  }, [m])
+  const cols = useMemo(() => {
+    if (!safeRows.length) return []
+    return Object.keys(safeRows[0])
+  }, [safeRows])
 
-  function notify(msg, color, icon='✓') {
-    setToast({ msg, color, icon })
-    setTimeout(() => setToast(null), 3000)
-  }
+  const uniqueValues = useMemo(() => {
+    if (!safeRows.length) return {}
+    const map = {}
+    cols.forEach(col => {
+      const vals = [...new Set(safeRows.map(r => String(r[col]??'')))]
+      if (vals.length <= 30) map[col] = vals
+    })
+    return map
+  }, [safeRows, cols])
 
-  async function processFile(file) {
-    if (!file) return
-    setError('')
-    setLoading(true)
-    setRows([])
-    setFileMeta(null)
-    try {
-      const result = await readFile(file)
-      if (!result.rows.length) throw new Error('No data rows found')
-      setTimeout(() => {
-        try {
-          setRows(result.rows)
-          setFileMeta({
-            name:  result.fileName,
-            type:  result.type,
-            sheet: result.sheet,
-          })
-          setLoading(false)
-          notify(
-            `Imported ${result.rows.length.toLocaleString()} rows`,
-            C.green
-          )
-        } catch(e) {
-          setError('Failed to load data: ' + e.message)
-          setLoading(false)
-        }
-      }, 50)
-    } catch (err) {
-      setError(err.message)
-      notify(err.message, C.red, '⚠')
-      setLoading(false)
-    }
-  }
+  const filtered = useMemo(() => {
+    if (!safeRows.length) return []
+    let data = safeRows
 
-  function onDrop(e) {
-    e.preventDefault(); setDragging(false)
-    if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0])
-  }
-
-  function exportCSV() {
-    if (!rows.length) return
-    try {
-      const h = Object.keys(rows[0]).join(',')
-      const b = rows.map(r =>
-        Object.values(r)
-          .map(v => `"${String(v??'').replace(/"/g,'""')}"`)
-          .join(',')
-      ).join('\n')
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(
-        new Blob([h+'\n'+b], { type:'text/csv' })
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      data = data.filter(row =>
+        Object.values(row).some(v =>
+          String(v).toLowerCase().includes(q)
+        )
       )
-      a.download = `sentimentiq_${Date.now()}.csv`
-      a.click()
-      notify('Exported!', C.green)
-    } catch(e) {
-      notify('Export failed: '+e.message, C.red, '⚠')
     }
+
+    Object.entries(colFilter).forEach(([col, val]) => {
+      if (val && val !== 'All') {
+        data = data.filter(row =>
+          String(row[col]??'').toLowerCase() === val.toLowerCase()
+        )
+      }
+    })
+
+    if (sortCol) {
+      data = [...data].sort((a, b) => {
+        const av = String(a[sortCol]??'')
+        const bv = String(b[sortCol]??'')
+        const nA = parseFloat(av), nB = parseFloat(bv)
+        const cmp = !isNaN(nA)&&!isNaN(nB)
+          ? nA-nB : av.localeCompare(bv)
+        return sortDir==='asc' ? cmp : -cmp
+      })
+    }
+
+    return data
+  }, [safeRows, search, colFilter, sortCol, sortDir])
+
+  const totalPages = useMemo(() =>
+    Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)),
+  [filtered])
+
+  const curPage = useMemo(() =>
+    Math.min(page, totalPages),
+  [page, totalPages])
+
+  const sliced = useMemo(() =>
+    filtered.slice((curPage-1)*PAGE_SIZE, curPage*PAGE_SIZE),
+  [filtered, curPage])
+
+  // ── END OF HOOKS ─────────────────────────────────────
+
+  // NOW safe to do conditional returns — all hooks already called
+  if (!safeRows.length) {
+    return <EmptyTable/>
   }
 
-  const ROLE_COLOR = { Admin:C.red, Manager:C.amber, Developer:C.cyan }
-  const roleColor  = ROLE_COLOR[user.role] || C.violet
+  const hasFilters = search ||
+    Object.values(colFilter).some(v => v && v !== 'All')
+
+  function doSort(col) {
+    if (sortCol===col) setSortDir(d=>d==='asc'?'desc':'asc')
+    else { setSortCol(col); setSortDir('asc') }
+    setPage(1)
+  }
+  function doFilter(col, val) {
+    setColFilter(prev=>({...prev,[col]:val}))
+    setPage(1)
+  }
+  function doSearch(val) { setSearch(val); setPage(1) }
+  function clearAll() {
+    setSearch(''); setColFilter({})
+    setSortCol(null); setSortDir('asc'); setPage(1)
+  }
 
   return (
-    <div style={{
-      minHeight:'100vh', background:C.bg0, color:C.text,
-      fontFamily:"'IBM Plex Mono','Courier New',monospace",
-    }}>
-      <Toast toast={toast}/>
+    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
 
-      {/* Header */}
-      <header style={{
-        background:C.bg1, borderBottom:`1px solid ${C.border}`,
-        height:56, display:'flex', alignItems:'center',
-        padding:'0 24px', gap:14,
-        position:'sticky', top:0, zIndex:100,
+      {/* toolbar */}
+      <div style={{
+        display:'flex', gap:10, alignItems:'center', flexWrap:'wrap',
       }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <div style={{
-            width:30, height:30, borderRadius:8,
-            background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
-            display:'flex', alignItems:'center',
-            justifyContent:'center', fontSize:15,
-          }}>⚡</div>
-          <div>
-            <div style={{
-              fontSize:13, fontWeight:900,
-              color:C.cyan, letterSpacing:2,
-            }}>SENTIMENTIQ</div>
-            <div style={{ fontSize:9, color:C.dim, letterSpacing:1.5 }}>
-              NTT DATA · AI ANALYTICS PLATFORM
-            </div>
-          </div>
+        <div style={{ position:'relative', flex:1, minWidth:200 }}>
+          <span style={{
+            position:'absolute', left:11, top:'50%',
+            transform:'translateY(-50%)',
+            color:C.dim, fontSize:13, pointerEvents:'none',
+          }}>🔍</span>
+          <input
+            value={search}
+            onChange={e=>doSearch(e.target.value)}
+            placeholder="Search across all columns…"
+            style={{
+              width:'100%', background:C.bg2,
+              border:`1px solid ${C.border}`,
+              borderRadius:8, padding:'8px 12px 8px 32px',
+              color:C.text, fontSize:12,
+              fontFamily:'inherit', outline:'none',
+              boxSizing:'border-box',
+            }}
+          />
         </div>
-
-        <div style={{ flex:1 }}/>
-
-        {fileMeta && (
-          <div style={{
-            background:C.violet+'12',
-            border:`1px solid ${C.violet}40`,
-            borderRadius:7, padding:'4px 12px',
-            fontSize:10, color:C.violet,
-          }}>
-            📁 {fileMeta.name}
-            <span style={{ color:C.dim }}>
-              {' '}· {m?.total?.toLocaleString()||0} rows
-            </span>
-          </div>
+        <div style={{ fontSize:11, color:C.sub, whiteSpace:'nowrap' }}>
+          <strong style={{color:C.cyan}}>
+            {filtered.length.toLocaleString()}
+          </strong>
+          {' of '}
+          <strong style={{color:C.text}}>
+            {safeRows.length.toLocaleString()}
+          </strong>
+          {' rows'}
+        </div>
+        {hasFilters && (
+          <button onClick={clearAll} style={{
+            background:C.red+'18', border:`1px solid ${C.red}50`,
+            color:C.red, borderRadius:7, padding:'6px 12px',
+            fontSize:11, fontWeight:700,
+            cursor:'pointer', fontFamily:'inherit',
+          }}>✕ Clear</button>
         )}
+      </div>
 
-        <div style={{
-          background:roleColor+'12',
-          border:`1px solid ${roleColor}40`,
-          borderRadius:7, padding:'4px 12px',
-          fontSize:10, color:roleColor, fontWeight:700,
-        }}>
-          👤 {user.name}
-          <span style={{ color:C.dim, fontWeight:400 }}>
-            {' '}· {user.role}
-          </span>
-        </div>
+      {/* pagination top */}
+      <PaginationBar
+        page={curPage} totalPages={totalPages}
+        setPage={setPage} totalFiltered={filtered.length}
+      />
 
-        <button onClick={onLogout} style={{
-          background:C.red+'15', border:`1px solid ${C.red}40`,
-          color:C.red, borderRadius:7, padding:'5px 14px',
-          fontSize:11, fontWeight:700,
-          cursor:'pointer', fontFamily:'inherit',
-        }}>Sign Out</button>
-      </header>
-
-      <main style={{
-        padding:'22px 24px', maxWidth:1400, margin:'0 auto',
+      {/* table */}
+      <div style={{
+        background:C.panel, border:`1px solid ${C.border}`,
+        borderRadius:12, overflow:'hidden',
       }}>
-
-        {/* Import bar */}
         <div style={{
-          background:C.panel, border:`1px solid ${C.border}`,
-          borderRadius:12, padding:'14px 20px',
-          display:'flex', alignItems:'center',
-          justifyContent:'space-between',
-          flexWrap:'wrap', gap:12, marginBottom:20,
+          overflowX:'auto', overflowY:'auto', maxHeight:'52vh',
         }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <div style={{ fontSize:22 }}>
-              {loading ? '⏳' : '📁'}
-            </div>
-            <div>
-              <div style={{ fontSize:12, fontWeight:700, color:C.text }}>
-                {loading
-                  ? 'Parsing file…'
-                  : fileMeta
-                  ? `${fileMeta.name} — ${m?.total?.toLocaleString()||0} rows`
-                  : 'Import Data'}
-              </div>
-              <div style={{ fontSize:10, color:C.sub, marginTop:2 }}>
-                Supports: CSV · Excel (.xlsx) · JSON · TXT
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display:'flex', gap:8 }}>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.xlsx,.xls,.json,.txt"
-              style={{ display:'none' }}
-              onChange={e => {
-                if (e.target.files[0]) processFile(e.target.files[0])
-                e.target.value = ''
-              }}
-            />
-            <div
-              onDragOver={e  => { e.preventDefault(); setDragging(true) }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={onDrop}
-            >
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={loading}
-                style={{
-                  background: loading
-                    ? C.dim
-                    : dragging ? C.violet+'40' : C.violet+'18',
-                  border:`1px solid ${C.violet}50`,
-                  color:C.violet, borderRadius:8, padding:'7px 18px',
-                  fontSize:12, fontWeight:700,
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontFamily:'inherit',
+          <table style={{
+            width:'100%', borderCollapse:'collapse', fontSize:12,
+          }}>
+            <thead>
+              <tr style={{ background:C.bg0 }}>
+                {cols.map(col => (
+                  <th key={col} onClick={()=>doSort(col)} style={{
+                    padding:'10px 14px', textAlign:'left',
+                    color:C.cyan, fontWeight:700, fontSize:10,
+                    letterSpacing:1.4, textTransform:'uppercase',
+                    whiteSpace:'nowrap',
+                    borderBottom:`1px solid ${C.border}`,
+                    cursor:'pointer', userSelect:'none',
+                    position:'sticky', top:0, background:C.bg0,
+                  }}>
+                    {col.replace(/_/g,' ')}
+                    <span style={{
+                      marginLeft:4,
+                      color:sortCol===col ? C.cyan : C.dim,
+                    }}>
+                      {sortCol===col
+                        ? (sortDir==='asc'?'↑':'↓') : '⇅'}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+              <tr style={{ background:C.bg0 }}>
+                {cols.map(col => {
+                  const opts = uniqueValues[col]
+                  return (
+                    <th key={col} style={{
+                      padding:'4px 8px',
+                      borderBottom:`2px solid ${C.cyan}33`,
+                      position:'sticky', top:37, background:C.bg0,
+                    }}>
+                      {opts ? (
+                        <select
+                          value={colFilter[col]||'All'}
+                          onChange={e=>doFilter(col,e.target.value)}
+                          style={{
+                            background:C.panel,
+                            border:`1px solid ${
+                              colFilter[col]&&colFilter[col]!=='All'
+                                ? C.cyan : C.border}`,
+                            borderRadius:5,
+                            color:colFilter[col]&&colFilter[col]!=='All'
+                              ? C.cyan : C.dim,
+                            fontSize:10, padding:'3px 6px',
+                            fontFamily:'inherit', cursor:'pointer',
+                            width:'100%', outline:'none',
+                          }}
+                        >
+                          <option value="All">All</option>
+                          {opts.sort().map(v=>(
+                            <option key={v} value={v}>
+                              {v||'(empty)'}
+                            </option>
+                          ))}
+                        </select>
+                      ) : <div style={{height:24}}/>}
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {sliced.map((row,ri) => (
+                <tr key={ri} style={{
+                  borderBottom:`1px solid ${C.border}22`,
+                  background:ri%2?'#ffffff04':'transparent',
+                  transition:'background .1s',
                 }}
-              >
-                {loading ? '⏳ Loading…' : '⬆ Import File'}
-              </button>
-            </div>
-
-            {rows.length > 0 && (
-              <button onClick={exportCSV} style={{
-                background:C.green+'18',
-                border:`1px solid ${C.green}50`,
-                color:C.green, borderRadius:8, padding:'7px 18px',
-                fontSize:12, fontWeight:700,
-                cursor:'pointer', fontFamily:'inherit',
-              }}>⬇ Export CSV</button>
-            )}
-          </div>
-
-          {error && (
-            <div style={{
-              width:'100%', background:C.red+'10',
-              border:`1px solid ${C.red}40`,
-              borderRadius:8, padding:'8px 13px',
-              fontSize:11, color:C.red, fontWeight:600,
-            }}>⚠ {error}</div>
-          )}
-        </div>
-
-        {/* Loading state */}
-        {loading && (
-          <div style={{
-            background:C.panel, border:`1px solid ${C.border}`,
-            borderRadius:14, padding:'48px 20px',
-            textAlign:'center', marginBottom:20,
-          }}>
-            <div style={{ fontSize:36, marginBottom:12 }}>⏳</div>
-            <div style={{ fontSize:14, color:C.amber, fontWeight:700 }}>
-              Parsing file… please wait
-            </div>
-            <div style={{ fontSize:11, color:C.dim, marginTop:6 }}>
-              Large files may take a few seconds
-            </div>
-          </div>
-        )}
-
-        {/* KPI Cards */}
-        {!loading && m && (
-          <div style={{
-            display:'grid', gridTemplateColumns:'repeat(4,1fr)',
-            gap:12, marginBottom:20,
-          }}>
-            <KPI
-              label="Total Records"
-              value={m.total.toLocaleString()}
-              sub="rows imported"
-              accent={C.sky}
-            />
-            <KPI
-              label="CSAT"
-              value={`${m.csatPct}%`}
-              sub={`${m.csatN.toLocaleString()} satisfied`}
-              accent={C.green}
-            />
-            <KPI
-              label="DSAT"
-              value={`${m.dsatPct}%`}
-              sub={`${m.dsatN.toLocaleString()} dissatisfied`}
-              accent={C.red}
-            />
-            <KPI
-              label="Neutral"
-              value={`${m.neuPct}%`}
-              sub={`${m.neuN.toLocaleString()} neutral`}
-              accent={C.amber}
-            />
-          </div>
-        )}
-
-        {/* Charts */}
-        {!loading && m && (
-          <>
-            {/* Row 1 — Sentiment Bar + CSAT vs DSAT */}
-            <div style={{
-              display:'grid', gridTemplateColumns:'1fr 1fr',
-              gap:14, marginBottom:14,
-            }}>
-
-              {/* Sentiment Bar Chart */}
-              <div style={{
-                background:C.panel, border:`1px solid ${C.border}`,
-                borderRadius:12, padding:'18px 20px',
-              }}>
-                <div style={{
-                  fontSize:12, fontWeight:700,
-                  color:C.text, marginBottom:2,
-                }}>
-                  Sentiment Distribution
-                </div>
-                <div style={{
-                  fontSize:10, color:C.sub, marginBottom:14,
-                }}>
-                  {`Positive: ${m.posN} · Negative: ${m.negN} · Neutral: ${m.neuN}`}
-                </div>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={sentBarData} barSize={60}>
-                    <CartesianGrid
-                      strokeDasharray="3 3" stroke={C.border}/>
-                    <XAxis dataKey="name" stroke={C.dim} fontSize={11}/>
-                    <YAxis stroke={C.dim} fontSize={10}/>
-                    <Tooltip
-                      contentStyle={TT}
-                      formatter={(v,n,p) => [
-                        `${v} (${p.payload.pct}%)`, 'Count'
-                      ]}
-                    />
-                    <Bar dataKey="value" radius={[6,6,0,0]}>
-                      <Cell fill={C.green}/>
-                      <Cell fill={C.red}/>
-                      <Cell fill={C.amber}/>
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* CSAT vs DSAT Bar */}
-              <div style={{
-                background:C.panel, border:`1px solid ${C.border}`,
-                borderRadius:12, padding:'18px 20px',
-              }}>
-                <div style={{
-                  fontSize:12, fontWeight:700,
-                  color:C.text, marginBottom:2,
-                }}>
-                  CSAT vs DSAT Comparison
-                </div>
-                <div style={{
-                  fontSize:10, color:C.sub, marginBottom:14,
-                }}>
-                  {`CSAT: ${m.csatPct}% · DSAT: ${m.dsatPct}%`}
-                </div>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={csatDsatBar} barSize={80}>
-                    <CartesianGrid
-                      strokeDasharray="3 3" stroke={C.border}/>
-                    <XAxis dataKey="name" stroke={C.dim} fontSize={12}/>
-                    <YAxis
-                      stroke={C.dim} fontSize={10}
-                      domain={[0,100]} unit="%"/>
-                    <Tooltip
-                      contentStyle={TT}
-                      formatter={v => [`${v}%`]}
-                    />
-                    <Bar dataKey="value" radius={[6,6,0,0]}>
-                      {csatDsatBar.map((d,i) => (
-                        <Cell key={i} fill={d.fill}/>
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Row 2 — Team + Region */}
-            {(m.teamData.length>0 || m.regionData.length>0) && (
-              <div style={{
-                display:'grid',
-                gridTemplateColumns:
-                  m.teamData.length>0 && m.regionData.length>0
-                    ? '1fr 1fr' : '1fr',
-                gap:14, marginBottom:14,
-              }}>
-                {m.teamData.length>0 && (
-                  <div style={{
-                    background:C.panel, border:`1px solid ${C.border}`,
-                    borderRadius:12, padding:'18px 20px',
+                  onMouseEnter={e=>
+                    (e.currentTarget.style.background=C.cyan+'0a')}
+                  onMouseLeave={e=>
+                    (e.currentTarget.style.background=
+                      ri%2?'#ffffff04':'transparent')}
+                >
+                  {cols.map(col => (
+                    <td key={col} style={{
+                      padding:'9px 14px', whiteSpace:'nowrap',
+                    }}>
+                      {BADGE_COLS.has(col)
+                        ? <Badge v={String(row[col]??'')}/>
+                        : EMAIL_COLS.has(col)
+                        ? <span style={{color:C.violet,fontSize:11}}>
+                            {row[col]}
+                          </span>
+                        : <span style={{color:C.text}}>
+                            {String(row[col]??'').length>48
+                              ? String(row[col]).slice(0,48)+'…'
+                              : row[col]}
+                          </span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {!sliced.length && (
+                <tr>
+                  <td colSpan={cols.length} style={{
+                    padding:40, textAlign:'center', color:C.dim,
                   }}>
-                    <div style={{
-                      fontSize:12, fontWeight:700,
-                      color:C.text, marginBottom:2,
-                    }}>CSAT% and DSAT% by Team</div>
-                    <div style={{
-                      fontSize:10, color:C.sub, marginBottom:14,
-                    }}>Team performance comparison</div>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={m.teamData} barSize={12}>
-                        <CartesianGrid
-                          strokeDasharray="3 3" stroke={C.border}/>
-                        <XAxis
-                          dataKey="name" stroke={C.dim} fontSize={9}
-                          interval={0} angle={-20}
-                          textAnchor="end" height={50}/>
-                        <YAxis stroke={C.dim} fontSize={10} unit="%"/>
-                        <Tooltip
-                          contentStyle={TT}
-                          formatter={v => [`${v}%`]}
-                        />
-                        <Legend
-                          iconType="circle" iconSize={8}
-                          wrapperStyle={{ fontSize:11 }}/>
-                        <Bar
-                          dataKey="CSAT%" fill={C.green}
-                          radius={[4,4,0,0]}/>
-                        <Bar
-                          dataKey="DSAT%" fill={C.red}
-                          radius={[4,4,0,0]}/>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-
-                {m.regionData.length>0 && (
-                  <div style={{
-                    background:C.panel, border:`1px solid ${C.border}`,
-                    borderRadius:12, padding:'18px 20px',
-                  }}>
-                    <div style={{
-                      fontSize:12, fontWeight:700,
-                      color:C.text, marginBottom:2,
-                    }}>CSAT% and DSAT% by Region</div>
-                    <div style={{
-                      fontSize:10, color:C.sub, marginBottom:14,
-                    }}>Regional performance comparison</div>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={m.regionData} barSize={12}>
-                        <CartesianGrid
-                          strokeDasharray="3 3" stroke={C.border}/>
-                        <XAxis
-                          dataKey="name" stroke={C.dim} fontSize={9}
-                          interval={0} angle={-20}
-                          textAnchor="end" height={60}/>
-                        <YAxis stroke={C.dim} fontSize={10} unit="%"/>
-                        <Tooltip
-                          contentStyle={TT}
-                          formatter={v => [`${v}%`]}
-                        />
-                        <Legend
-                          iconType="circle" iconSize={8}
-                          wrapperStyle={{ fontSize:11 }}/>
-                        <Bar
-                          dataKey="CSAT%" fill={C.cyan}
-                          radius={[4,4,0,0]}/>
-                        <Bar
-                          dataKey="DSAT%" fill={C.violet}
-                          radius={[4,4,0,0]}/>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Table — always visible */}
-        <div>
-          <div style={{
-            display:'flex', alignItems:'center',
-            justifyContent:'space-between',
-            marginBottom:12, flexWrap:'wrap', gap:10,
-          }}>
-            <div>
-              <div style={{
-                fontSize:13, fontWeight:700, color:C.text,
-              }}>Data Table</div>
-              <div style={{ fontSize:11, color:C.sub, marginTop:2 }}>
-                {rows.length > 0
-                  ? `${rows.length.toLocaleString()} records · Sort · Filter · 200 rows per page`
-                  : 'Import a file above to view data'}
-              </div>
-            </div>
-            {rows.length > 0 && (
-              <button onClick={exportCSV} style={{
-                background:C.green+'18',
-                border:`1px solid ${C.green}50`,
-                color:C.green, borderRadius:8, padding:'7px 18px',
-                fontSize:12, fontWeight:700,
-                cursor:'pointer', fontFamily:'inherit',
-              }}>⬇ Export CSV</button>
-            )}
-          </div>
-          <DataTable rows={rows}/>
+                    No records match your filters
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+      </div>
 
-      </main>
+      {/* pagination bottom */}
+      <PaginationBar
+        page={curPage} totalPages={totalPages}
+        setPage={setPage} totalFiltered={filtered.length}
+      />
 
       <style>{`
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{background:${C.bg0}}
         select option{background:${C.bg2};color:${C.text}}
-        input::placeholder{color:${C.dim}}
-        button:active{transform:scale(.97)}
+        ::-webkit-scrollbar{width:5px;height:5px}
+        ::-webkit-scrollbar-track{background:#07090f}
+        ::-webkit-scrollbar-thumb{
+          background:${C.border};border-radius:3px}
       `}</style>
     </div>
   )
