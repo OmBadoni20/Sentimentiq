@@ -1,796 +1,209 @@
-import { useState } from 'react'
-import Login     from './pages/Login.jsx'
-import Dashboard from './pages/Dashboard.jsx'
+# ============================================================
+# SENTIMENTIQ — Basic Backend (No AI Model Yet)
+# FastAPI only
+# ============================================================
 
-export default function App() {
-  const [user, setUser] = useState(null)
-  const [rows, setRows] = useState([])
+import io
+import pandas as pd
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
-  if (!user) return <Login onLogin={setUser} />
+# ============================================================
+app = FastAPI(title="SentimentIQ API")
 
-  return (
-    <Dashboard
-      user={user}
-      rows={rows}
-      setRows={setRows}
-      onLogout={() => { setUser(null); setRows([]) }}
-    />
-  )
-}
+app.add_middleware(CORSMiddleware,
+    allow_origins=["http://localhost:5173",
+                   "http://localhost:5174",
+                   "http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+current_df = pd.DataFrame()
+
+print("\n" + "="*50)
+print("   SENTIMENTIQ BACKEND — Basic Version")
+print("="*50 + "\n")
 
 
+# ============================================================
+# HELPERS
+# ============================================================
+def is_true(val):
+    if pd.isna(val):
+        return False
+    return val == 1 or val == True or \
+        str(val).strip().lower() in ['1', 'true', 'yes']
 
 
+def find_col(df, *names):
+    cols = [c.strip().lower().replace(' ', '') for c in df.columns]
+    for n in names:
+        n_clean = n.lower().replace(' ', '')
+        for i, c in enumerate(cols):
+            if c == n_clean:
+                return df.columns[i]
+    return None
 
-import { useState, useRef, useMemo } from 'react'
-import DataTable    from '../components/DataTable.jsx'
-import { readFile } from '../utils/fileParser.js'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, Cell,
-} from 'recharts'
 
-const C = {
-  bg0:'#07090f', bg1:'#0d1117', bg2:'#161b22', panel:'#13181f',
-  border:'#21262d', cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
-  amber:'#d29922', violet:'#bc8cff', sky:'#79c0ff',
-  text:'#e6edf3', sub:'#8b949e', dim:'#484f58',
-}
+def calculate_metrics() -> dict:
+    global current_df
+    if current_df.empty:
+        return {"message": "No data uploaded yet.", "total": 0}
 
-const TT = {
-  background:C.panel, border:`1px solid ${C.border}`,
-  borderRadius:8, fontSize:11, color:C.text,
-}
+    df    = current_df
+    total = len(df)
 
-function findCol(row, ...names) {
-  if (!row) return null
-  const keys = Object.keys(row)
-  for (const name of names) {
-    const f = keys.find(
-      k => k.trim().toLowerCase().replace(/\s+/g,'')
-        === name.toLowerCase().replace(/\s+/g,'')
-    )
-    if (f) return f
-  }
-  return null
-}
+    csat_col   = find_col(df, 'ISHAPPY', 'CSAT')
+    dsat_col   = find_col(df, 'ISSAD', 'DSAT')
+    pass_col   = find_col(df, 'ISPASSIVE')
+    sent_col   = find_col(df, 'Predicted_Sentiment', 'Sentiment')
+    team_col   = find_col(df, 'TEAM', 'Department')
+    region_col = find_col(df, 'REGION', 'Industry')
 
-function isTrue(val) {
-  if (val === null || val === undefined) return false
-  return val === 1 || val === true ||
-    String(val).trim().toLowerCase() === '1' ||
-    String(val).trim().toLowerCase() === 'true' ||
-    String(val).trim().toLowerCase() === 'yes'
-}
+    csat_n = sum(1 for v in df[csat_col] if is_true(v)) if csat_col else 0
+    dsat_n = sum(1 for v in df[dsat_col] if is_true(v)) if dsat_col else 0
+    neu_n  = sum(1 for v in df[pass_col] if is_true(v)) if pass_col else 0
 
-function calcMetrics(rows) {
-  try {
-    if (!rows || !rows.length) return null
-    const s = rows[0]
+    if sent_col:
+        pos_n = sum(1 for v in df[sent_col] if str(v).strip().lower() == 'positive')
+        neg_n = sum(1 for v in df[sent_col] if str(v).strip().lower() == 'negative')
+        neu_n = sum(1 for v in df[sent_col] if str(v).strip().lower() == 'neutral')
+    else:
+        pos_n, neg_n = csat_n, dsat_n
 
-    const csatCol    = findCol(s,'ISHAPPY','ishappy','CSAT','csat')
-    const dsatCol    = findCol(s,'ISSAD','issad','DSAT','dsat')
-    const passiveCol = findCol(s,'ISPASSIVE','ispassive')
-    const sentCol    = findCol(s,'Predicted_Sentiment','Sentiment','sentiment')
-    const teamCol    = findCol(s,'TEAM','Team','Department','department')
-    const regionCol  = findCol(s,'REGION','Region','Industry','industry')
+    pct = lambda n: round(n / total * 100, 1) if total else 0
 
-    let csatN=0, dsatN=0, posN=0, negN=0, neuN=0
-    const byTeam={}, byRegion={}
-
-    for (const r of rows) {
-      try {
-        const cv = r[csatCol]
-        const dv = r[dsatCol]
-        const pv = r[passiveCol]
-
-        if (csatCol && isTrue(cv)) csatN++
-        if (dsatCol && isTrue(dv)) dsatN++
-
-        if (sentCol) {
-          const sv = String(r[sentCol]??'').trim().toLowerCase()
-          if      (sv==='positive') posN++
-          else if (sv==='negative') negN++
-          else if (sv==='neutral')  neuN++
-        } else {
-          if      (isTrue(cv)) posN++
-          else if (isTrue(dv)) negN++
-          else if (isTrue(pv)) neuN++
-        }
-
-        if (teamCol) {
-          const k = String(r[teamCol]??'').trim()
-          if (k && k!=='nan' && k!=='') {
-            if (!byTeam[k]) byTeam[k]={name:k,csat:0,dsat:0,total:0}
-            byTeam[k].total++
-            if (isTrue(cv)) byTeam[k].csat++
-            if (isTrue(dv)) byTeam[k].dsat++
-          }
-        }
-
-        if (regionCol) {
-          const k = String(r[regionCol]??'').trim()
-          if (k && k!=='nan' && k!=='') {
-            if (!byRegion[k]) byRegion[k]={name:k,csat:0,dsat:0,total:0}
-            byRegion[k].total++
-            if (isTrue(cv)) byRegion[k].csat++
-            if (isTrue(dv)) byRegion[k].dsat++
-          }
-        }
-      } catch(_) { continue }
+    result = {
+        "total"      : total,
+        "csat_pct"   : pct(csat_n),
+        "dsat_pct"   : pct(dsat_n),
+        "neutral_pct": pct(neu_n),
+        "csat_n"     : csat_n,
+        "dsat_n"     : dsat_n,
+        "neutral_n"  : neu_n,
+        "pos_n"      : pos_n,
+        "neg_n"      : neg_n,
     }
 
-    const total = rows.length
-    const pct   = n => total ? parseFloat((n/total*100).toFixed(1)) : 0
+    # Team breakdown
+    if team_col and csat_col:
+        stats = {}
+        for _, row in df.iterrows():
+            k = str(row[team_col]).strip()
+            if not k or k == 'nan':
+                continue
+            if k not in stats:
+                stats[k] = {'csat': 0, 'dsat': 0, 'total': 0}
+            stats[k]['total'] += 1
+            if is_true(row[csat_col]):
+                stats[k]['csat'] += 1
+            if dsat_col and is_true(row[dsat_col]):
+                stats[k]['dsat'] += 1
 
+        result['team_breakdown'] = {
+            t: {
+                'csat_pct': round(v['csat']/v['total']*100, 1) if v['total'] else 0,
+                'dsat_pct': round(v['dsat']/v['total']*100, 1) if v['total'] else 0,
+                'total'   : v['total'],
+            } for t, v in stats.items()
+        }
+
+    # Region breakdown
+    if region_col and csat_col:
+        stats = {}
+        for _, row in df.iterrows():
+            k = str(row[region_col]).strip()
+            if not k or k == 'nan':
+                continue
+            if k not in stats:
+                stats[k] = {'csat': 0, 'dsat': 0, 'total': 0}
+            stats[k]['total'] += 1
+            if is_true(row[csat_col]):
+                stats[k]['csat'] += 1
+            if dsat_col and is_true(row[dsat_col]):
+                stats[k]['dsat'] += 1
+
+        result['region_breakdown'] = {
+            r: {
+                'csat_pct': round(v['csat']/v['total']*100, 1) if v['total'] else 0,
+                'dsat_pct': round(v['dsat']/v['total']*100, 1) if v['total'] else 0,
+                'total'   : v['total'],
+            } for r, v in stats.items()
+        }
+
+    return result
+
+
+# ============================================================
+# ENDPOINTS
+# ============================================================
+
+@app.get("/")
+def root():
+    return {"message": "SentimentIQ Backend is running!"}
+
+
+@app.get("/health")
+def health():
     return {
-      total, csatN, dsatN, posN, negN, neuN,
-      csatPct: pct(csatN), dsatPct: pct(dsatN),
-      posPct:  pct(posN),  negPct:  pct(negN),
-      neuPct:  pct(neuN),
-      teamData: Object.values(byTeam)
-        .map(d=>({
-          name:    d.name,
-          'CSAT%': d.total?parseFloat((d.csat/d.total*100).toFixed(1)):0,
-          'DSAT%': d.total?parseFloat((d.dsat/d.total*100).toFixed(1)):0,
-        }))
-        .sort((a,b)=>b['CSAT%']-a['CSAT%']).slice(0,8),
-      regionData: Object.values(byRegion)
-        .map(d=>({
-          name:    d.name,
-          'CSAT%': d.total?parseFloat((d.csat/d.total*100).toFixed(1)):0,
-          'DSAT%': d.total?parseFloat((d.dsat/d.total*100).toFixed(1)):0,
-        }))
-        .sort((a,b)=>b['CSAT%']-a['CSAT%']).slice(0,8),
+        "status"   : "running",
+        "data_rows": len(current_df),
     }
-  } catch(e) {
-    console.error('calcMetrics:', e)
-    return null
-  }
-}
 
-function KPI({ label, value, sub, accent }) {
-  return (
-    <div style={{
-      background:C.panel, border:`1px solid ${accent}33`,
-      borderRadius:12, padding:'16px 20px',
-    }}>
-      <div style={{
-        fontSize:10, color:C.sub, letterSpacing:1.5,
-        textTransform:'uppercase', marginBottom:6, fontFamily:'monospace',
-      }}>{label}</div>
-      <div style={{
-        fontSize:28, fontWeight:900, color:accent,
-        fontFamily:'monospace', lineHeight:1,
-      }}>{value}</div>
-      {sub && (
-        <div style={{ fontSize:11, color:C.dim, marginTop:5 }}>{sub}</div>
-      )}
-      <div style={{
-        marginTop:10, height:3,
-        background:accent+'20', borderRadius:2,
-      }}>
-        <div style={{
-          height:'100%',
-          width:`${Math.min(parseFloat(value)||0, 100)}%`,
-          background:accent, borderRadius:2, transition:'width .6s',
-        }}/>
-      </div>
-    </div>
-  )
-}
 
-function Toast({ toast }) {
-  if (!toast) return null
-  return (
-    <div style={{
-      position:'fixed', top:16, right:16, zIndex:9999,
-      background:C.panel, border:`1px solid ${toast.color}`,
-      borderRadius:9, padding:'10px 18px',
-      color:toast.color, fontSize:12, fontWeight:700,
-      boxShadow:`0 0 24px ${toast.color}30`,
-      fontFamily:'monospace',
-    }}>{toast.icon} {toast.msg}</div>
-  )
-}
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    global current_df
+    try:
+        contents = await file.read()
+        name = file.filename.lower()
 
-export default function Dashboard({ user, rows, setRows, onLogout }) {
-  const [page,     setPage]    = useState('charts')
-  const [fileMeta, setFileMeta]= useState(null)
-  const [loading,  setLoading] = useState(false)
-  const [error,    setError]   = useState('')
-  const [toast,    setToast]   = useState(null)
-  const [dragging, setDragging]= useState(false)
-  const fileRef = useRef(null)
+        if name.endswith('.csv'):
+            current_df = pd.read_csv(io.BytesIO(contents))
+        elif name.endswith(('.xlsx', '.xls')):
+            current_df = pd.read_excel(io.BytesIO(contents))
+        elif name.endswith('.json'):
+            current_df = pd.read_json(io.BytesIO(contents))
+        else:
+            raise HTTPException(400, "Only CSV, Excel, JSON accepted")
 
-  // ALL hooks at top
-  const m = useMemo(() => {
-    try { return calcMetrics(rows) }
-    catch(e) { return null }
-  }, [rows])
+        current_df = current_df.fillna('')
 
-  const sentBarData = useMemo(() => !m ? [] : [
-    { name:'Positive', value:m.posN,  pct:m.posPct },
-    { name:'Negative', value:m.negN,  pct:m.negPct },
-    { name:'Neutral',  value:m.neuN,  pct:m.neuPct },
-  ], [m])
+        return {
+            "message" : f"Uploaded {len(current_df)} rows",
+            "rows"    : len(current_df),
+            "columns" : list(current_df.columns),
+            "filename": file.filename,
+        }
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
-  const csatDsatBar = useMemo(() => !m ? [] : [
-    { name:'CSAT', value:m.csatPct, fill:C.green },
-    { name:'DSAT', value:m.dsatPct, fill:C.red   },
-  ], [m])
 
-  const ROLE_COLOR = { Admin:C.red, Manager:C.amber, Developer:C.cyan }
-  const roleColor  = ROLE_COLOR[user?.role] || C.violet
+@app.get("/metrics")
+def get_metrics():
+    return calculate_metrics()
 
-  function notify(msg, color, icon='✓') {
-    setToast({ msg, color, icon })
-    setTimeout(()=>setToast(null), 3000)
-  }
 
-  async function processFile(file) {
-    if (!file) return
-    setError(''); setLoading(true)
-    setRows([]); setFileMeta(null)
-    try {
-      const result = await readFile(file)
-      if (!result.rows.length) throw new Error('No data rows found')
-      setTimeout(() => {
-        setRows(result.rows)
-        setFileMeta({ name:result.fileName, type:result.type })
-        setLoading(false)
-        notify(
-          `Imported ${result.rows.length.toLocaleString()} rows`,
-          C.green
-        )
-      }, 100)
-    } catch(err) {
-      setError(err.message)
-      notify(err.message, C.red, '⚠')
-      setLoading(false)
+@app.get("/data")
+def get_data(limit: int = 200):
+    if current_df.empty:
+        return {"rows": [], "total": 0}
+    return {
+        "rows"   : current_df.head(limit).to_dict(orient='records'),
+        "total"  : len(current_df),
+        "columns": list(current_df.columns),
     }
-  }
 
-  function onDrop(e) {
-    e.preventDefault(); setDragging(false)
-    if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0])
-  }
 
-  function exportCSV() {
-    if (!rows.length) return
-    const h = Object.keys(rows[0]).join(',')
-    const b = rows.map(r =>
-      Object.values(r)
-        .map(v=>`"${String(v??'').replace(/"/g,'""')}"`)
-        .join(',')
-    ).join('\n')
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(
-      new Blob([h+'\n'+b],{type:'text/csv'})
-    )
-    a.download = `sentimentiq_${Date.now()}.csv`
-    a.click()
-    notify('Exported!', C.green)
-  }
-
-  const NAV = [
-    { id:'charts', icon:'📊', label:'Charts',  sub:'Analytics & KPIs'  },
-    { id:'data',   icon:'📋', label:'Data',    sub:'Table & Import'     },
-  ]
-
-  return (
-    <div style={{
-      display:'flex', height:'100vh',
-      background:C.bg0, color:C.text,
-      fontFamily:"'IBM Plex Mono','Courier New',monospace",
-      overflow:'hidden',
-    }}>
-      <Toast toast={toast}/>
-
-      {/* ── LEFT SIDEBAR ────────────────────────────── */}
-      <div style={{
-        width:220, minWidth:220,
-        background:C.bg1,
-        borderRight:`1px solid ${C.border}`,
-        display:'flex', flexDirection:'column',
-        height:'100vh',
-        position:'fixed', left:0, top:0, zIndex:200,
-      }}>
-
-        {/* Logo */}
-        <div style={{
-          padding:'20px 18px 16px',
-          borderBottom:`1px solid ${C.border}`,
-        }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <div style={{
-              width:34, height:34, borderRadius:9,
-              background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
-              display:'flex', alignItems:'center',
-              justifyContent:'center', fontSize:18, flexShrink:0,
-            }}>⚡</div>
-            <div>
-              <div style={{
-                fontSize:13, fontWeight:900,
-                color:C.cyan, letterSpacing:2,
-              }}>SENTIMENTIQ</div>
-              <div style={{ fontSize:9, color:C.dim, letterSpacing:1.5 }}>
-                NTT DATA · AI
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* File info badge */}
-        {fileMeta && (
-          <div style={{
-            margin:'12px 12px 0',
-            background:C.violet+'12',
-            border:`1px solid ${C.violet}30`,
-            borderRadius:8, padding:'8px 10px',
-          }}>
-            <div style={{
-              fontSize:10, color:C.violet, fontWeight:700,
-            }}>
-              📁 {fileMeta.name.length>22
-                ? fileMeta.name.slice(0,20)+'…'
-                : fileMeta.name}
-            </div>
-            <div style={{ fontSize:9, color:C.dim, marginTop:3 }}>
-              {(m?.total||0).toLocaleString()} rows loaded
-            </div>
-          </div>
-        )}
-
-        {/* Nav */}
-        <nav style={{
-          flex:1, padding:'12px 10px',
-          display:'flex', flexDirection:'column', gap:4,
-        }}>
-          <div style={{
-            fontSize:9, color:C.dim, letterSpacing:1.5,
-            fontWeight:700, padding:'4px 8px 8px',
-          }}>NAVIGATION</div>
-
-          {NAV.map(item => {
-            const active = page === item.id
-            return (
-              <button
-                key={item.id}
-                onClick={() => setPage(item.id)}
-                style={{
-                  display:'flex', alignItems:'center', gap:12,
-                  background: active ? C.cyan+'18' : 'transparent',
-                  border:`1px solid ${active ? C.cyan+'50':'transparent'}`,
-                  borderRadius:9, padding:'10px 12px',
-                  cursor:'pointer', fontFamily:'inherit',
-                  textAlign:'left', width:'100%',
-                }}
-                onMouseEnter={e => {
-                  if (!active) {
-                    e.currentTarget.style.background = C.bg2
-                    e.currentTarget.style.borderColor = C.border
-                  }
-                }}
-                onMouseLeave={e => {
-                  if (!active) {
-                    e.currentTarget.style.background = 'transparent'
-                    e.currentTarget.style.borderColor = 'transparent'
-                  }
-                }}
-              >
-                <span style={{ fontSize:18 }}>{item.icon}</span>
-                <div>
-                  <div style={{
-                    fontSize:12, fontWeight:700,
-                    color: active ? C.cyan : C.text,
-                  }}>{item.label}</div>
-                  <div style={{ fontSize:9, color:C.dim, marginTop:1 }}>
-                    {item.sub}
-                  </div>
-                </div>
-                {active && (
-                  <div style={{
-                    marginLeft:'auto', width:3, height:26,
-                    background:C.cyan, borderRadius:2,
-                  }}/>
-                )}
-              </button>
-            )
-          })}
-        </nav>
-
-        {/* Quick stats */}
-        {m && (
-          <div style={{
-            margin:'0 10px 12px',
-            background:C.bg2, border:`1px solid ${C.border}`,
-            borderRadius:9, padding:'10px 12px',
-          }}>
-            <div style={{
-              fontSize:9, color:C.dim, letterSpacing:1.5,
-              fontWeight:700, marginBottom:8,
-            }}>QUICK STATS</div>
-            {[
-              ['CSAT',    `${m.csatPct}%`, C.green],
-              ['DSAT',    `${m.dsatPct}%`, C.red  ],
-              ['Neutral', `${m.neuPct}%`,  C.amber],
-            ].map(([label,value,color]) => (
-              <div key={label} style={{
-                display:'flex', justifyContent:'space-between',
-                marginBottom:5, alignItems:'center',
-              }}>
-                <span style={{ fontSize:10, color:C.sub }}>{label}</span>
-                <span style={{
-                  fontSize:12, fontWeight:900,
-                  color, fontFamily:'monospace',
-                }}>{value}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* User + logout */}
-        <div style={{
-          borderTop:`1px solid ${C.border}`,
-          padding:'12px',
-        }}>
-          <div style={{
-            display:'flex', alignItems:'center',
-            justifyContent:'space-between', gap:8,
-          }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{
-                fontSize:11, fontWeight:700, color:roleColor,
-                whiteSpace:'nowrap', overflow:'hidden',
-                textOverflow:'ellipsis',
-              }}>{user?.name}</div>
-              <div style={{ fontSize:9, color:C.dim, marginTop:1 }}>
-                {user?.role}
-              </div>
-            </div>
-            <button onClick={onLogout} style={{
-              background:C.red+'15', border:`1px solid ${C.red}40`,
-              color:C.red, borderRadius:6, padding:'5px 9px',
-              fontSize:10, fontWeight:700,
-              cursor:'pointer', fontFamily:'inherit', flexShrink:0,
-            }}>OUT</button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── RIGHT CONTENT AREA ──────────────────────── */}
-      <div style={{
-        marginLeft:220, flex:1,
-        height:'100vh',
-        overflowY:'auto',
-        overflowX:'hidden',
-      }}>
-
-        {/* ── CHARTS PAGE ─────────────────────────── */}
-        {page==='charts' && (
-          <div style={{ padding:'24px' }}>
-            <div style={{ marginBottom:20 }}>
-              <h1 style={{
-                fontSize:20, fontWeight:900,
-                color:C.cyan, margin:0, letterSpacing:1,
-              }}>Charts & Analytics</h1>
-              <p style={{ fontSize:11, color:C.sub, margin:'4px 0 0' }}>
-                {m
-                  ? `${m.total.toLocaleString()} records analysed`
-                  : 'Import data from Data page to see charts'}
-              </p>
-            </div>
-
-            {!m && (
-              <div style={{
-                background:C.panel, border:`1px solid ${C.border}`,
-                borderRadius:14, padding:'60px 20px', textAlign:'center',
-              }}>
-                <div style={{ fontSize:48, marginBottom:16 }}>📊</div>
-                <div style={{
-                  fontSize:15, fontWeight:700,
-                  color:C.text, marginBottom:8,
-                }}>No data imported yet</div>
-                <div style={{ fontSize:12, color:C.sub, marginBottom:20 }}>
-                  Go to Data page and import a CSV or Excel file
-                </div>
-                <button onClick={()=>setPage('data')} style={{
-                  background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
-                  border:'none', borderRadius:9, padding:'10px 28px',
-                  color:'#000', fontSize:12, fontWeight:900,
-                  cursor:'pointer', fontFamily:'inherit',
-                }}>Go to Data →</button>
-              </div>
-            )}
-
-            {m && (
-              <>
-                {/* KPI cards */}
-                <div style={{
-                  display:'grid', gridTemplateColumns:'repeat(4,1fr)',
-                  gap:12, marginBottom:20,
-                }}>
-                  <KPI label="Total"   value={m.total.toLocaleString()} sub="records" accent={C.sky}   />
-                  <KPI label="CSAT"    value={`${m.csatPct}%`} sub={`${m.csatN.toLocaleString()} satisfied`}    accent={C.green} />
-                  <KPI label="DSAT"    value={`${m.dsatPct}%`} sub={`${m.dsatN.toLocaleString()} dissatisfied`} accent={C.red}   />
-                  <KPI label="Neutral" value={`${m.neuPct}%`}  sub={`${m.neuN.toLocaleString()} neutral`}       accent={C.amber} />
-                </div>
-
-                {/* Charts row 1 */}
-                <div style={{
-                  display:'grid', gridTemplateColumns:'1fr 1fr',
-                  gap:14, marginBottom:14,
-                }}>
-                  <div style={{
-                    background:C.panel, border:`1px solid ${C.border}`,
-                    borderRadius:12, padding:'18px 20px',
-                  }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:2 }}>
-                      Sentiment Distribution
-                    </div>
-                    <div style={{ fontSize:10, color:C.sub, marginBottom:14 }}>
-                      Pos: {m.posN} · Neg: {m.negN} · Neu: {m.neuN}
-                    </div>
-                    <ResponsiveContainer width="100%" height={210}>
-                      <BarChart data={sentBarData} barSize={55}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                        <XAxis dataKey="name" stroke={C.dim} fontSize={11}/>
-                        <YAxis stroke={C.dim} fontSize={10}/>
-                        <Tooltip contentStyle={TT}
-                          formatter={(v,n,p)=>[`${v} (${p.payload.pct}%)`,'Count']}/>
-                        <Bar dataKey="value" radius={[6,6,0,0]}>
-                          <Cell fill={C.green}/>
-                          <Cell fill={C.red}/>
-                          <Cell fill={C.amber}/>
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  <div style={{
-                    background:C.panel, border:`1px solid ${C.border}`,
-                    borderRadius:12, padding:'18px 20px',
-                  }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:2 }}>
-                      CSAT vs DSAT
-                    </div>
-                    <div style={{ fontSize:10, color:C.sub, marginBottom:14 }}>
-                      CSAT: {m.csatPct}% · DSAT: {m.dsatPct}%
-                    </div>
-                    <ResponsiveContainer width="100%" height={210}>
-                      <BarChart data={csatDsatBar} barSize={90}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                        <XAxis dataKey="name" stroke={C.dim} fontSize={12}/>
-                        <YAxis stroke={C.dim} fontSize={10} domain={[0,100]} unit="%"/>
-                        <Tooltip contentStyle={TT} formatter={v=>[`${v}%`]}/>
-                        <Bar dataKey="value" radius={[6,6,0,0]}>
-                          {csatDsatBar.map((d,i)=>(
-                            <Cell key={i} fill={d.fill}/>
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                {/* Charts row 2 — Team + Region */}
-                {(m.teamData?.length>0||m.regionData?.length>0) && (
-                  <div style={{
-                    display:'grid',
-                    gridTemplateColumns:
-                      m.teamData?.length>0&&m.regionData?.length>0
-                        ?'1fr 1fr':'1fr',
-                    gap:14, marginBottom:14,
-                  }}>
-                    {m.teamData?.length>0 && (
-                      <div style={{
-                        background:C.panel, border:`1px solid ${C.border}`,
-                        borderRadius:12, padding:'18px 20px',
-                      }}>
-                        <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:2 }}>
-                          CSAT% and DSAT% by Team
-                        </div>
-                        <div style={{ fontSize:10, color:C.sub, marginBottom:14 }}>
-                          Team performance
-                        </div>
-                        <ResponsiveContainer width="100%" height={220}>
-                          <BarChart data={m.teamData} barSize={12}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                            <XAxis dataKey="name" stroke={C.dim} fontSize={9}
-                              interval={0} angle={-20} textAnchor="end" height={50}/>
-                            <YAxis stroke={C.dim} fontSize={10} unit="%"/>
-                            <Tooltip contentStyle={TT} formatter={v=>[`${v}%`]}/>
-                            <Legend iconType="circle" iconSize={8} wrapperStyle={{fontSize:11}}/>
-                            <Bar dataKey="CSAT%" fill={C.green} radius={[4,4,0,0]}/>
-                            <Bar dataKey="DSAT%" fill={C.red}   radius={[4,4,0,0]}/>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-                    {m.regionData?.length>0 && (
-                      <div style={{
-                        background:C.panel, border:`1px solid ${C.border}`,
-                        borderRadius:12, padding:'18px 20px',
-                      }}>
-                        <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:2 }}>
-                          CSAT% and DSAT% by Region
-                        </div>
-                        <div style={{ fontSize:10, color:C.sub, marginBottom:14 }}>
-                          Regional performance
-                        </div>
-                        <ResponsiveContainer width="100%" height={220}>
-                          <BarChart data={m.regionData} barSize={12}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                            <XAxis dataKey="name" stroke={C.dim} fontSize={9}
-                              interval={0} angle={-20} textAnchor="end" height={60}/>
-                            <YAxis stroke={C.dim} fontSize={10} unit="%"/>
-                            <Tooltip contentStyle={TT} formatter={v=>[`${v}%`]}/>
-                            <Legend iconType="circle" iconSize={8} wrapperStyle={{fontSize:11}}/>
-                            <Bar dataKey="CSAT%" fill={C.cyan}   radius={[4,4,0,0]}/>
-                            <Bar dataKey="DSAT%" fill={C.violet} radius={[4,4,0,0]}/>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ── DATA PAGE ───────────────────────────── */}
-        {page==='data' && (
-          <div style={{ padding:'24px' }}>
-            <div style={{
-              display:'flex', alignItems:'center',
-              justifyContent:'space-between',
-              marginBottom:20, flexWrap:'wrap', gap:12,
-            }}>
-              <div>
-                <h1 style={{
-                  fontSize:20, fontWeight:900,
-                  color:C.cyan, margin:0, letterSpacing:1,
-                }}>Data</h1>
-                <p style={{ fontSize:11, color:C.sub, margin:'4px 0 0' }}>
-                  Import · Filter · Sort · Export · 200 rows/page
-                </p>
-              </div>
-              {rows.length>0 && (
-                <button onClick={exportCSV} style={{
-                  background:C.green+'18', border:`1px solid ${C.green}50`,
-                  color:C.green, borderRadius:8, padding:'8px 20px',
-                  fontSize:12, fontWeight:700,
-                  cursor:'pointer', fontFamily:'inherit',
-                }}>⬇ Export CSV</button>
-              )}
-            </div>
-
-            {/* Import panel */}
-            <div style={{
-              background:C.panel, border:`1px solid ${C.border}`,
-              borderRadius:12, padding:'16px 20px', marginBottom:20,
-            }}>
-              <div style={{
-                display:'flex', alignItems:'center',
-                justifyContent:'space-between',
-                flexWrap:'wrap', gap:12,
-              }}>
-                <div>
-                  <div style={{ fontSize:12, fontWeight:700, color:C.text }}>
-                    {loading ? '⏳ Parsing…'
-                      : fileMeta ? `✓ ${fileMeta.name}`
-                      : 'Import Data'}
-                  </div>
-                  <div style={{ fontSize:10, color:C.sub, marginTop:2 }}>
-                    CSV · Excel (.xlsx) · JSON · TXT
-                  </div>
-                </div>
-                <input
-                  ref={fileRef} type="file"
-                  accept=".csv,.xlsx,.xls,.json,.txt"
-                  style={{ display:'none' }}
-                  onChange={e=>{
-                    if (e.target.files[0]) processFile(e.target.files[0])
-                    e.target.value=''
-                  }}
-                />
-                <button
-                  onClick={()=>fileRef.current?.click()}
-                  disabled={loading}
-                  onDragOver={e=>{e.preventDefault();setDragging(true)}}
-                  onDragLeave={()=>setDragging(false)}
-                  onDrop={onDrop}
-                  style={{
-                    background: loading?C.dim
-                      :dragging?C.violet+'40':C.violet+'18',
-                    border:`1px solid ${C.violet}50`,
-                    color:C.violet, borderRadius:8,
-                    padding:'8px 20px', fontSize:12, fontWeight:700,
-                    cursor:loading?'not-allowed':'pointer',
-                    fontFamily:'inherit',
-                  }}
-                >
-                  {loading?'⏳ Loading…':'⬆ Import File'}
-                </button>
-              </div>
-
-              {!rows.length&&!loading&&(
-                <div
-                  onDragOver={e=>{e.preventDefault();setDragging(true)}}
-                  onDragLeave={()=>setDragging(false)}
-                  onDrop={onDrop}
-                  onClick={()=>fileRef.current?.click()}
-                  style={{
-                    marginTop:14,
-                    border:`2px dashed ${dragging?C.cyan:C.border}`,
-                    borderRadius:10, padding:'32px',
-                    textAlign:'center', cursor:'pointer',
-                    background:dragging?C.cyan+'08':C.bg2,
-                    transition:'all .2s',
-                  }}
-                >
-                  <div style={{ fontSize:32, marginBottom:8 }}>
-                    {dragging?'📂':'📁'}
-                  </div>
-                  <div style={{
-                    fontSize:13, fontWeight:700,
-                    color:dragging?C.cyan:C.text, marginBottom:4,
-                  }}>
-                    {dragging?'Drop here!':'Drag & drop or click Import'}
-                  </div>
-                  <div style={{ fontSize:11, color:C.dim }}>
-                    CSV · Excel · JSON · TXT
-                  </div>
-                </div>
-              )}
-
-              {loading&&(
-                <div style={{
-                  marginTop:14, padding:'24px',
-                  textAlign:'center', background:C.bg2, borderRadius:10,
-                }}>
-                  <div style={{ fontSize:28, marginBottom:8 }}>⏳</div>
-                  <div style={{ color:C.amber, fontSize:13, fontWeight:700 }}>
-                    Parsing file…
-                  </div>
-                </div>
-              )}
-
-              {error&&(
-                <div style={{
-                  marginTop:12, background:C.red+'10',
-                  border:`1px solid ${C.red}40`, borderRadius:8,
-                  padding:'9px 13px', fontSize:11,
-                  color:C.red, fontWeight:600,
-                }}>⚠ {error}</div>
-              )}
-            </div>
-
-            {/* Table */}
-            <DataTable rows={rows}/>
-          </div>
-        )}
-      </div>
-
-      <style>{`
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{background:${C.bg0};overflow:hidden}
-        select option{background:${C.bg2};color:${C.text}}
-        input::placeholder{color:${C.dim}}
-        button:active{transform:scale(.97)}
-        ::-webkit-scrollbar{width:8px;height:8px}
-        ::-webkit-scrollbar-track{background:${C.bg1}}
-        ::-webkit-scrollbar-thumb{
-          background:${C.border};border-radius:4px}
-        ::-webkit-scrollbar-thumb:hover{background:${C.dim}}
-      `}</style>
-    </div>
-  )
-}
+# ============================================================
+if __name__ == "__main__":
+    import uvicorn
+    print("Starting server at http://localhost:8000")
+    print("Docs at http://localhost:8000/docs\n")
+    uvicorn.run("backend:app", host="0.0.0.0", port=8000, reload=True)
 
 
 
 
-
+    pip install fastapi uvicorn pandas openpyxl python-multipart --trusted-host pypi.org --trusted-host files.pythonhosted.org
