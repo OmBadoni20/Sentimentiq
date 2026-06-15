@@ -1,825 +1,999 @@
-{
-  "app": {
-    "name": "SentimentIQ",
-    "version": "1.0.0",
-    "company": "NTT Data"
-  },
-
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8000,
-    "reload": true
-  },
-
-  "cors": {
-    "allow_origins": [
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "http://localhost:3000"
-    ]
-  },
-
-  "auth": {
-    "secret_key": "sentimentiq_ntt_secret_2026",
-    "token_expire_minutes": 480
-  },
-
-  "users": [
-    {
-      "username": "om.badoni",
-      "password": "NTT@2026",
-      "role": "Developer",
-      "name": "Om Badoni"
-    },
-    {
-      "username": "manager",
-      "password": "Manager@2026",
-      "role": "Manager",
-      "name": "NTT Manager"
-    },
-    {
-      "username": "admin",
-      "password": "Admin@2026",
-      "role": "Admin",
-      "name": "Admin User"
-    }
-  ]
-}
-
-
-
-
-
-
-# ============================================================
-# AUTH MICROSERVICE
-# Handles login, token creation, user verification
-# Reads credentials from config.json
-# ============================================================
-
-import json
-import os
-import hashlib
-from datetime import datetime, timedelta
-from typing import Optional
-
-# ── Load config ───────────────────────────────────────────
-def load_config() -> dict:
-    config_path = os.path.join(
-        os.path.dirname(__file__), '..', 'config.json'
-    )
-    with open(config_path, 'r') as f:
-        return json.load(f)
-
-CONFIG = load_config()
-USERS  = CONFIG['users']
-AUTH   = CONFIG['auth']
-
-print(f"[AuthService] Loaded {len(USERS)} users from config.json")
-
-
-# ── Find user from config ─────────────────────────────────
-def get_user(username: str) -> Optional[dict]:
-    """
-    Fetches user from config.json by username
-    Returns user dict or None if not found
-    """
-    for user in USERS:
-        if user['username'].lower() == username.lower():
-            return user
-    return None
-
-
-# ── Verify password ───────────────────────────────────────
-def verify_password(plain_password: str,
-                    stored_password: str) -> bool:
-    """
-    Compares entered password with stored password
-    Currently plain text — can upgrade to hashing later
-    """
-    return plain_password == stored_password
-
-
-# ── Authenticate user ─────────────────────────────────────
-def authenticate_user(username: str,
-                      password: str) -> Optional[dict]:
-    """
-    Main authentication function:
-    1. Fetch user from config
-    2. Verify password
-    3. Return user if valid, None if invalid
-    """
-    print(f"[AuthService] Login attempt: {username}")
-
-    user = get_user(username)
-    if not user:
-        print(f"[AuthService] User not found: {username}")
-        return None
-
-    if not verify_password(password, user['password']):
-        print(f"[AuthService] Wrong password: {username}")
-        return None
-
-    print(f"[AuthService] Login success: {username} ({user['role']})")
-    return user
-
-
-# ── Create simple token ───────────────────────────────────
-def create_token(user: dict) -> str:
-    """
-    Creates a simple session token
-    Contains: username + role + timestamp
-    """
-    data = f"{user['username']}:{user['role']}:{datetime.now()}"
-    token = hashlib.sha256(data.encode()).hexdigest()
-    return token
-
-
-# ── Get all users (for admin) ─────────────────────────────
-def get_all_users() -> list:
-    """
-    Returns all users without passwords
-    """
-    return [
-        {
-            "username": u['username'],
-            "name"    : u['name'],
-            "role"    : u['role'],
-        }
-        for u in USERS
-    ]
-
-
-
-
-
-
-    # ============================================================
-# DATA MICROSERVICE
-# Handles file upload, metrics calculation, data retrieval
-# ============================================================
-
-import io
-import pandas as pd
-from typing import Optional
-
-print("[DataService] Data microservice loaded")
-
-# ── Global data store ─────────────────────────────────────
-current_df = pd.DataFrame()
-
-
-# ── Helper — is true ──────────────────────────────────────
-def is_true(val) -> bool:
-    """Check if a value means YES/TRUE/1"""
-    if pd.isna(val):
-        return False
-    return val == 1 or val == True or \
-        str(val).strip().lower() in ['1', 'true', 'yes']
-
-
-# ── Helper — find column ──────────────────────────────────
-def find_col(df: pd.DataFrame, *names) -> Optional[str]:
-    """
-    Find column by name ignoring case and spaces
-    Tries multiple name variations
-    """
-    cols = [c.strip().lower().replace(' ', '')
-            for c in df.columns]
-    for n in names:
-        n_clean = n.lower().replace(' ', '')
-        for i, c in enumerate(cols):
-            if c == n_clean:
-                return df.columns[i]
-    return None
-
-
-# ── Upload file ───────────────────────────────────────────
-def process_upload(contents: bytes, filename: str) -> dict:
-    """
-    Reads uploaded file into DataFrame
-    Supports CSV, Excel, JSON
-    """
-    global current_df
-    name = filename.lower()
-
-    if name.endswith('.csv'):
-        current_df = pd.read_csv(io.BytesIO(contents))
-    elif name.endswith(('.xlsx', '.xls')):
-        current_df = pd.read_excel(io.BytesIO(contents))
-    elif name.endswith('.json'):
-        current_df = pd.read_json(io.BytesIO(contents))
-    else:
-        raise ValueError(
-            f"Unsupported file type: {filename}. "
-            "Use CSV, Excel or JSON."
-        )
-
-    current_df = current_df.fillna('')
-
-    print(f"[DataService] Loaded {len(current_df)} rows "
-          f"from {filename}")
-
-    return {
-        "message" : f"Uploaded {len(current_df)} rows",
-        "rows"    : len(current_df),
-        "columns" : list(current_df.columns),
-        "filename": filename,
-    }
-
-
-# ── Calculate metrics ─────────────────────────────────────
-def get_metrics() -> dict:
-    """
-    Calculates CSAT%, DSAT%, Neutral%
-    + team and region breakdown
-    """
-    global current_df
-
-    if current_df.empty:
-        return {"message": "No data uploaded yet.", "total": 0}
-
-    df    = current_df
-    total = len(df)
-
-    # Find relevant columns
-    csat_col   = find_col(df, 'ISHAPPY', 'CSAT')
-    dsat_col   = find_col(df, 'ISSAD',   'DSAT')
-    pass_col   = find_col(df, 'ISPASSIVE')
-    sent_col   = find_col(df, 'Predicted_Sentiment', 'Sentiment')
-    team_col   = find_col(df, 'TEAM',   'Department')
-    region_col = find_col(df, 'REGION', 'Industry')
-
-    # Count
-    csat_n = sum(1 for v in df[csat_col] if is_true(v)) \
-             if csat_col else 0
-    dsat_n = sum(1 for v in df[dsat_col] if is_true(v)) \
-             if dsat_col else 0
-    neu_n  = sum(1 for v in df[pass_col] if is_true(v)) \
-             if pass_col else 0
-
-    if sent_col:
-        pos_n = sum(1 for v in df[sent_col]
-                    if str(v).strip().lower() == 'positive')
-        neg_n = sum(1 for v in df[sent_col]
-                    if str(v).strip().lower() == 'negative')
-        neu_n = sum(1 for v in df[sent_col]
-                    if str(v).strip().lower() == 'neutral')
-    else:
-        pos_n, neg_n = csat_n, dsat_n
-
-    pct = lambda n: round(n / total * 100, 1) if total else 0
-
-    result = {
-        "total"      : total,
-        "csat_pct"   : pct(csat_n),
-        "dsat_pct"   : pct(dsat_n),
-        "neutral_pct": pct(neu_n),
-        "csat_n"     : csat_n,
-        "dsat_n"     : dsat_n,
-        "neutral_n"  : neu_n,
-        "pos_n"      : pos_n,
-        "neg_n"      : neg_n,
-    }
-
-    # Team breakdown
-    if team_col and csat_col:
-        stats = {}
-        for _, row in df.iterrows():
-            k = str(row[team_col]).strip()
-            if not k or k == 'nan':
-                continue
-            if k not in stats:
-                stats[k] = {'csat':0, 'dsat':0, 'total':0}
-            stats[k]['total'] += 1
-            if is_true(row[csat_col]):
-                stats[k]['csat'] += 1
-            if dsat_col and is_true(row[dsat_col]):
-                stats[k]['dsat'] += 1
-
-        result['team_breakdown'] = {
-            t: {
-                'csat_pct': round(
-                    v['csat']/v['total']*100, 1
-                ) if v['total'] else 0,
-                'dsat_pct': round(
-                    v['dsat']/v['total']*100, 1
-                ) if v['total'] else 0,
-                'total': v['total'],
-            }
-            for t, v in stats.items()
-        }
-
-    # Region breakdown
-    if region_col and csat_col:
-        stats = {}
-        for _, row in df.iterrows():
-            k = str(row[region_col]).strip()
-            if not k or k == 'nan':
-                continue
-            if k not in stats:
-                stats[k] = {'csat':0, 'dsat':0, 'total':0}
-            stats[k]['total'] += 1
-            if is_true(row[csat_col]):
-                stats[k]['csat'] += 1
-            if dsat_col and is_true(row[dsat_col]):
-                stats[k]['dsat'] += 1
-
-        result['region_breakdown'] = {
-            r: {
-                'csat_pct': round(
-                    v['csat']/v['total']*100, 1
-                ) if v['total'] else 0,
-                'dsat_pct': round(
-                    v['dsat']/v['total']*100, 1
-                ) if v['total'] else 0,
-                'total': v['total'],
-            }
-            for r, v in stats.items()
-        }
-
-    return result
-
-
-# ── Get data rows ─────────────────────────────────────────
-def get_data(limit: int = 200) -> dict:
-    """Returns rows from uploaded data"""
-    global current_df
-
-    if current_df.empty:
-        return {"rows": [], "total": 0}
-
-    return {
-        "rows"   : current_df.head(limit).to_dict(
-            orient='records'
-        ),
-        "total"  : len(current_df),
-        "columns": list(current_df.columns),
-    }
-
-
-# ── Get status ────────────────────────────────────────────
-def get_status() -> dict:
-    return {
-        "data_loaded": not current_df.empty,
-        "data_rows"  : len(current_df),
-        "columns"    : list(current_df.columns)
-                       if not current_df.empty else [],
-    }
-
-
-
-
-
-
-
-
-
-    
-  # ============================================================
-# SENTIMENTIQ — Main Backend
-# Connects all microservices
-# Config driven — reads from config.json
-# ============================================================
-
-import json
-import os
-
-# ── Load config first ─────────────────────────────────────
-with open('config.json', 'r') as f:
-    CONFIG = json.load(f)
-
-print("\n" + "="*60)
-print(f"   {CONFIG['app']['name']} BACKEND")
-print(f"   {CONFIG['app']['company']} · v{CONFIG['app']['version']}")
-print("="*60 + "\n")
-
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-# ── Import microservices ──────────────────────────────────
-from services.auth_service import (
-    authenticate_user,
-    create_token,
-    get_all_users,
-)
-from services.data_service import (
-    process_upload,
-    get_metrics,
-    get_data,
-    get_status,
-)
-
-# ── Create FastAPI app ────────────────────────────────────
-app = FastAPI(
-    title=CONFIG['app']['name'],
-    version=CONFIG['app']['version'],
-)
-
-# ── CORS from config ──────────────────────────────────────
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CONFIG['cors']['allow_origins'],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# ============================================================
-# AUTH ROUTES — /auth/...
-# ============================================================
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-@app.post("/auth/login")
-def login(req: LoginRequest):
-    """
-    Login endpoint
-    1. Takes username + password from frontend
-    2. Calls auth_service.authenticate_user()
-    3. auth_service reads credentials from config.json
-    4. Returns user info + token if valid
-    5. Returns 401 error if invalid
-    """
-    user = authenticate_user(req.username, req.password)
-
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid username or password"
-        )
-
-    token = create_token(user)
-
-    return {
-        "success" : True,
-        "token"   : token,
-        "user"    : {
-            "username": user['username'],
-            "name"    : user['name'],
-            "role"    : user['role'],
-        },
-        "message" : f"Welcome {user['name']}!"
-    }
-
-
-@app.get("/auth/users")
-def list_users():
-    """
-    Returns all users (without passwords)
-    Admin only — for demo purposes
-    """
-    return {"users": get_all_users()}
-
-
-# ============================================================
-# DATA ROUTES — /data/...
-# ============================================================
-
-@app.post("/data/upload")
-async def upload(file: UploadFile = File(...)):
-    """
-    Upload CSV/Excel/JSON file
-    Calls data_service.process_upload()
-    """
-    try:
-        contents = await file.read()
-        result   = process_upload(contents, file.filename)
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/data/metrics")
-def metrics():
-    """
-    Get CSAT%, DSAT%, Neutral%
-    Calls data_service.get_metrics()
-    """
-    return get_metrics()
-
-
-@app.get("/data/rows")
-def rows(limit: int = 200):
-    """
-    Get data rows
-    Calls data_service.get_data()
-    """
-    return get_data(limit)
-
-
-@app.get("/data/status")
-def data_status():
-    """
-    Check if data is loaded
-    """
-    return get_status()
-
-
-# ============================================================
-# HEALTH — /health
-# ============================================================
-
-@app.get("/health")
-def health():
-    """Overall system health"""
-    data_st = get_status()
-    return {
-        "status"     : "running",
-        "app"        : CONFIG['app']['name'],
-        "version"    : CONFIG['app']['version'],
-        "data_loaded": data_st['data_loaded'],
-        "data_rows"  : data_st['data_rows'],
-    }
-
-
-@app.get("/")
-def root():
-    return {
-        "message": f"{CONFIG['app']['name']} API is running!",
-        "version": CONFIG['app']['version'],
-        "docs"   : "http://localhost:8000/docs",
-    }
-
-
-# ============================================================
-# RUN SERVER — from config
-# ============================================================
-if __name__ == "__main__":
-    import uvicorn
-
-    host   = CONFIG['server']['host']
-    port   = CONFIG['server']['port']
-    reload = CONFIG['server']['reload']
-
-    print(f"Starting server at http://localhost:{port}")
-    print(f"API docs at http://localhost:{port}/docs\n")
-
-    uvicorn.run(
-        "backend:app",
-        host=host,
-        port=port,
-        reload=reload,
-    )
-
-
-
-
-
-
-
-
-    import { useState } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
+import DataTable from '../components/DataTable.jsx'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer, Cell,
+} from 'recharts'
+
+// ── Backend API URL ───────────────────────────────────────
+const API = 'http://localhost:8000'
 
 const C = {
   bg0:'#07090f', bg1:'#0d1117', bg2:'#161b22', panel:'#13181f',
-  border:'#21262d', cyan:'#58a6ff', red:'#f85149', violet:'#bc8cff',
+  border:'#21262d', cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
+  amber:'#d29922', violet:'#bc8cff', sky:'#79c0ff',
   text:'#e6edf3', sub:'#8b949e', dim:'#484f58',
 }
 
-const API = 'http://localhost:8000'
+const TT = {
+  background:C.panel, border:`1px solid ${C.border}`,
+  borderRadius:8, fontSize:11, color:C.text,
+}
 
-export default function Login({ onLogin }) {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPwd,  setShowPwd]  = useState(false)
-  const [error,    setError]    = useState('')
-  const [loading,  setLoading]  = useState(false)
+function KPI({ label, value, sub, accent }) {
+  return (
+    <div style={{
+      background:C.panel, border:`1px solid ${accent}33`,
+      borderRadius:12, padding:'16px 20px',
+    }}>
+      <div style={{
+        fontSize:10, color:C.sub, letterSpacing:1.5,
+        textTransform:'uppercase', marginBottom:6,
+        fontFamily:'monospace',
+      }}>{label}</div>
+      <div style={{
+        fontSize:28, fontWeight:900, color:accent,
+        fontFamily:'monospace', lineHeight:1,
+      }}>{value}</div>
+      {sub && (
+        <div style={{ fontSize:11, color:C.dim, marginTop:5 }}>
+          {sub}
+        </div>
+      )}
+      <div style={{
+        marginTop:10, height:3,
+        background:accent+'20', borderRadius:2,
+      }}>
+        <div style={{
+          height:'100%',
+          width:`${Math.min(parseFloat(value)||0, 100)}%`,
+          background:accent, borderRadius:2,
+          transition:'width .6s',
+        }}/>
+      </div>
+    </div>
+  )
+}
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setError('')
+function Toast({ toast }) {
+  if (!toast) return null
+  return (
+    <div style={{
+      position:'fixed', top:16, right:16, zIndex:9999,
+      background:C.panel, border:`1px solid ${toast.color}`,
+      borderRadius:9, padding:'10px 18px',
+      color:toast.color, fontSize:12, fontWeight:700,
+      boxShadow:`0 0 24px ${toast.color}30`,
+      fontFamily:'monospace',
+    }}>{toast.icon} {toast.msg}</div>
+  )
+}
 
-    // Basic validation
-    if (!username.trim()) {
-      setError('Please enter your username')
-      return
+export default function Dashboard({ user, rows, setRows, onLogout }) {
+  const [page,       setPage]      = useState('charts')
+  const [loading,    setLoading]   = useState(false)
+  const [error,      setError]     = useState('')
+  const [dragging,   setDragging]  = useState(false)
+  const [toast,      setToast]     = useState(null)
+  const [metrics,    setMetrics]   = useState(null)
+  const [backendRows,setBackendRows]= useState([])
+  const [fileMeta,   setFileMeta]  = useState(null)
+  const [apiError,   setApiError]  = useState('')
+  const fileRef = useRef(null)
+
+  // ── Token from login ──────────────────────────────────
+  const token = localStorage.getItem('token')
+
+  // ── ALL hooks at top ──────────────────────────────────
+  const sentBarData = useMemo(() => !metrics ? [] : [
+    { name:'Positive', value:metrics.pos_n||0,
+      pct:metrics.csat_pct||0 },
+    { name:'Negative', value:metrics.neg_n||0,
+      pct:metrics.dsat_pct||0 },
+    { name:'Neutral',  value:metrics.neutral_n||0,
+      pct:metrics.neutral_pct||0 },
+  ], [metrics])
+
+  const csatDsatBar = useMemo(() => !metrics ? [] : [
+    { name:'CSAT', value:metrics.csat_pct||0, fill:C.green },
+    { name:'DSAT', value:metrics.dsat_pct||0, fill:C.red   },
+  ], [metrics])
+
+  const teamData = useMemo(() => {
+    if (!metrics?.team_breakdown) return []
+    return Object.entries(metrics.team_breakdown)
+      .map(([name, v]) => ({
+        name,
+        'CSAT%': v.csat_pct,
+        'DSAT%': v.dsat_pct,
+      }))
+      .sort((a,b) => b['CSAT%'] - a['CSAT%'])
+      .slice(0, 8)
+  }, [metrics])
+
+  const regionData = useMemo(() => {
+    if (!metrics?.region_breakdown) return []
+    return Object.entries(metrics.region_breakdown)
+      .map(([name, v]) => ({
+        name,
+        'CSAT%': v.csat_pct,
+        'DSAT%': v.dsat_pct,
+      }))
+      .sort((a,b) => b['CSAT%'] - a['CSAT%'])
+      .slice(0, 8)
+  }, [metrics])
+
+  const ROLE_COLOR = { Admin:C.red, Manager:C.amber, Developer:C.cyan }
+  const roleColor  = ROLE_COLOR[user?.role] || C.violet
+
+  function notify(msg, color, icon='✓') {
+    setToast({ msg, color, icon })
+    setTimeout(()=>setToast(null), 3500)
+  }
+
+  // ── Fetch metrics from backend ─────────────────────────
+  async function fetchMetrics() {
+    try {
+      const res = await fetch(`${API}/data/metrics`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      const data = await res.json()
+      if (data.total === 0) return
+      console.log('[Dashboard] Metrics from backend:', data)
+      setMetrics(data)
+    } catch(e) {
+      console.error('[Dashboard] Metrics fetch failed:', e)
+      setApiError('Could not fetch metrics from backend')
     }
-    if (!password.trim()) {
-      setError('Please enter your password')
-      return
-    }
+  }
 
-    setLoading(true)
+  // ── Fetch rows from backend ────────────────────────────
+  async function fetchRows(limit = 5000) {
+    try {
+      const res = await fetch(
+        `${API}/data/rows?limit=${limit}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      )
+      const data = await res.json()
+      if (data.rows && data.rows.length) {
+        console.log('[Dashboard] Rows from backend:', data.total)
+        setBackendRows(data.rows)
+        setRows(data.rows)
+      }
+    } catch(e) {
+      console.error('[Dashboard] Rows fetch failed:', e)
+    }
+  }
+
+  // ── Upload file to backend ─────────────────────────────
+  async function uploadToBackend(file) {
+    setError(''); setLoading(true)
+    setMetrics(null); setBackendRows([])
+    setRows([])
 
     try {
-      // ── Call backend /auth/login API ─────────────────
-      const response = await fetch(`${API}/auth/login`, {
+      // Step 1 — Send file to backend
+      console.log('[Dashboard] Uploading to backend:', file.name)
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const uploadRes = await fetch(`${API}/data/upload`, {
         method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({
-          username: username.trim(),
-          password: password.trim(),
-        }),
+        headers: { 'Authorization': `Bearer ${token}` },
+        body   : formData,
       })
 
-      const data = await response.json()
-
-      if (!response.ok) {
-        // Backend returned 401 — wrong credentials
-        setError(data.detail || 'Invalid username or password')
-        setLoading(false)
-        return
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json()
+        throw new Error(err.detail || 'Upload failed')
       }
 
-      // ── Login success ────────────────────────────────
-      // Save token for future API calls
-      localStorage.setItem('token', data.token)
-      localStorage.setItem('user', JSON.stringify(data.user))
+      const uploadData = await uploadRes.json()
+      console.log('[Dashboard] Upload success:', uploadData)
 
-      // Pass user to App.jsx
-      onLogin(data.user)
+      setFileMeta({
+        name : uploadData.filename,
+        rows : uploadData.rows,
+        cols : uploadData.columns,
+      })
 
-    } catch (err) {
-      // Backend not running
-      setError(
-        'Cannot connect to server. ' +
-        'Make sure backend is running on port 8000.'
+      notify(
+        `✓ Imported ${uploadData.rows.toLocaleString()} rows from "${uploadData.filename}"`,
+        C.green
       )
+
+      // Step 2 — Fetch metrics from backend
+      console.log('[Dashboard] Fetching metrics from backend...')
+      const metricsRes = await fetch(`${API}/data/metrics`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      const metricsData = await metricsRes.json()
+      console.log('[Dashboard] Metrics received:', metricsData)
+      setMetrics(metricsData)
+
+      // Step 3 — Fetch rows from backend
+      console.log('[Dashboard] Fetching rows from backend...')
+      const rowsRes = await fetch(
+        `${API}/data/rows?limit=10000`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      )
+      const rowsData = await rowsRes.json()
+      console.log('[Dashboard] Rows received:', rowsData.total)
+      setBackendRows(rowsData.rows || [])
+      setRows(rowsData.rows || [])
+
+      setLoading(false)
+      setPage('charts')
+
+    } catch(err) {
+      console.error('[Dashboard] Error:', err)
+      setError(err.message)
+      notify(err.message, C.red, '⚠')
       setLoading(false)
     }
   }
 
-  const inp = {
-    width:'100%', background:C.bg2,
-    border:`1px solid ${C.border}`,
-    borderRadius:9, padding:'12px 14px',
-    color:C.text, fontSize:13,
-    fontFamily:'inherit', outline:'none',
-    boxSizing:'border-box', transition:'border-color .2s',
+  function onDrop(e) {
+    e.preventDefault(); setDragging(false)
+    if (e.dataTransfer.files[0]) {
+      uploadToBackend(e.dataTransfer.files[0])
+    }
   }
 
+  const NAV = [
+    { id:'charts', icon:'📊', label:'Charts',  sub:'Analytics & KPIs' },
+    { id:'data',   icon:'📋', label:'Data',    sub:'Table & Export'   },
+  ]
+
+  // ── IMPORT SCREEN (no data yet) ────────────────────────
+  if (!rows.length && !loading) {
+    return (
+      <div style={{
+        minHeight:'100vh', background:C.bg0, color:C.text,
+        fontFamily:"'IBM Plex Mono','Courier New',monospace",
+        display:'flex', flexDirection:'column',
+      }}>
+        <Toast toast={toast}/>
+
+        {/* Header */}
+        <header style={{
+          background:C.bg1, borderBottom:`1px solid ${C.border}`,
+          height:56, display:'flex', alignItems:'center',
+          padding:'0 24px', gap:14,
+        }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{
+              width:30, height:30, borderRadius:8,
+              background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
+              display:'flex', alignItems:'center',
+              justifyContent:'center', fontSize:15,
+            }}>⚡</div>
+            <div>
+              <div style={{
+                fontSize:13, fontWeight:900,
+                color:C.cyan, letterSpacing:2,
+              }}>SENTIMENTIQ</div>
+              <div style={{ fontSize:9, color:C.dim, letterSpacing:1.5 }}>
+                NTT DATA · AI ANALYTICS PLATFORM
+              </div>
+            </div>
+          </div>
+          <div style={{ flex:1 }}/>
+          <div style={{
+            background:C.green+'12',
+            border:`1px solid ${C.green}30`,
+            borderRadius:7, padding:'4px 12px',
+            fontSize:10, color:C.green, fontWeight:700,
+          }}>
+            ● Backend Connected
+          </div>
+          <div style={{
+            background:roleColor+'12',
+            border:`1px solid ${roleColor}40`,
+            borderRadius:7, padding:'4px 12px',
+            fontSize:10, color:roleColor, fontWeight:700,
+          }}>
+            👤 {user?.name}
+            <span style={{ color:C.dim, fontWeight:400 }}>
+              {' '}· {user?.role}
+            </span>
+          </div>
+          <button onClick={onLogout} style={{
+            background:C.red+'15', border:`1px solid ${C.red}40`,
+            color:C.red, borderRadius:7, padding:'5px 14px',
+            fontSize:11, fontWeight:700,
+            cursor:'pointer', fontFamily:'inherit',
+          }}>Sign Out</button>
+        </header>
+
+        {/* Import Card */}
+        <div style={{
+          flex:1, display:'flex',
+          alignItems:'center', justifyContent:'center', padding:24,
+        }}>
+          <div style={{ width:'100%', maxWidth:520 }}>
+            <div style={{ textAlign:'center', marginBottom:28 }}>
+              <div style={{ fontSize:48, marginBottom:12 }}>📊</div>
+              <h1 style={{
+                fontSize:22, fontWeight:900,
+                color:C.cyan, margin:0, letterSpacing:1,
+              }}>Welcome, {user?.name}!</h1>
+              <p style={{ fontSize:12, color:C.sub, marginTop:8 }}>
+                Import your data file to get started
+              </p>
+              <div style={{
+                marginTop:10, fontSize:10,
+                color:C.green, fontWeight:700,
+              }}>
+                ● Connected to backend API
+              </div>
+            </div>
+
+            <div style={{
+              background:C.panel, border:`1px solid ${C.border}`,
+              borderRadius:14, padding:28,
+            }}>
+              <div style={{
+                fontSize:12, fontWeight:700,
+                color:C.text, marginBottom:4,
+              }}>Import Data File</div>
+              <div style={{
+                fontSize:10, color:C.sub, marginBottom:6,
+              }}>
+                File will be uploaded to backend server
+              </div>
+              <div style={{
+                fontSize:9, color:C.dim, marginBottom:20,
+                background:C.bg2, borderRadius:6,
+                padding:'6px 10px',
+              }}>
+                POST {API}/data/upload
+              </div>
+
+              <input
+                ref={fileRef} type="file"
+                accept=".csv,.xlsx,.xls,.json,.txt"
+                style={{ display:'none' }}
+                onChange={e=>{
+                  if (e.target.files[0])
+                    uploadToBackend(e.target.files[0])
+                  e.target.value=''
+                }}
+              />
+
+              <div
+                onDragOver={e=>{e.preventDefault();setDragging(true)}}
+                onDragLeave={()=>setDragging(false)}
+                onDrop={onDrop}
+                onClick={()=>fileRef.current?.click()}
+                style={{
+                  border:`2px dashed ${dragging?C.cyan:C.border}`,
+                  borderRadius:12, padding:'40px 20px',
+                  textAlign:'center', cursor:'pointer',
+                  background:dragging?C.cyan+'08':C.bg2,
+                  transition:'all .2s', marginBottom:16,
+                }}
+              >
+                <div style={{ fontSize:40, marginBottom:10 }}>
+                  {dragging?'📂':'📁'}
+                </div>
+                <div style={{
+                  fontSize:14, fontWeight:700,
+                  color:dragging?C.cyan:C.text, marginBottom:6,
+                }}>
+                  {dragging
+                    ?'Drop file here!'
+                    :'Drag & drop your file here'}
+                </div>
+                <div style={{ fontSize:11, color:C.dim }}>
+                  or click to browse
+                </div>
+              </div>
+
+              <button
+                onClick={()=>fileRef.current?.click()}
+                style={{
+                  width:'100%',
+                  background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
+                  border:'none', borderRadius:10, padding:'13px',
+                  color:'#000', fontSize:13, fontWeight:900,
+                  cursor:'pointer', fontFamily:'inherit',
+                  letterSpacing:1,
+                }}
+              >⬆ Browse & Import File</button>
+
+              {error && (
+                <div style={{
+                  marginTop:14, background:C.red+'10',
+                  border:`1px solid ${C.red}40`,
+                  borderRadius:8, padding:'10px 14px',
+                  fontSize:11, color:C.red, fontWeight:600,
+                }}>⚠ {error}</div>
+              )}
+
+              <div style={{
+                marginTop:18, display:'flex',
+                justifyContent:'center', gap:8, flexWrap:'wrap',
+              }}>
+                {['CSV','Excel','JSON','TXT'].map(f=>(
+                  <div key={f} style={{
+                    background:C.bg2, border:`1px solid ${C.border}`,
+                    borderRadius:6, padding:'4px 12px',
+                    fontSize:10, color:C.sub, fontWeight:700,
+                  }}>{f}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── LOADING SCREEN ─────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{
+        minHeight:'100vh', background:C.bg0,
+        display:'flex', alignItems:'center',
+        justifyContent:'center', flexDirection:'column',
+        fontFamily:'monospace', color:C.text, gap:16,
+      }}>
+        <div style={{ fontSize:48 }}>⏳</div>
+        <div style={{ fontSize:16, fontWeight:700, color:C.amber }}>
+          Uploading to backend…
+        </div>
+        <div style={{ fontSize:11, color:C.dim }}>
+          POST {API}/data/upload
+        </div>
+        <div style={{ fontSize:11, color:C.dim, marginTop:8 }}>
+          Then fetching metrics + rows from backend…
+        </div>
+      </div>
+    )
+  }
+
+  // ── MAIN DASHBOARD ─────────────────────────────────────
   return (
     <div style={{
-      minHeight:'100vh', background:C.bg0,
-      display:'flex', alignItems:'center',
-      justifyContent:'center', flexDirection:'column',
+      display:'flex', height:'100vh',
+      background:C.bg0, color:C.text,
       fontFamily:"'IBM Plex Mono','Courier New',monospace",
-      padding:20,
+      overflow:'hidden',
     }}>
+      <Toast toast={toast}/>
 
-      {/* Background grid */}
+      {/* LEFT SIDEBAR */}
       <div style={{
-        position:'fixed', inset:0, zIndex:0, pointerEvents:'none',
-        backgroundImage:`
-          linear-gradient(${C.border}44 1px, transparent 1px),
-          linear-gradient(90deg, ${C.border}44 1px, transparent 1px)
-        `,
-        backgroundSize:'40px 40px',
-      }}/>
-      <div style={{
-        position:'fixed', top:'30%', left:'50%',
-        transform:'translate(-50%,-50%)',
-        width:500, height:300,
-        background:`radial-gradient(ellipse,${C.cyan}14 0%,transparent 70%)`,
-        pointerEvents:'none', zIndex:0,
-      }}/>
-
-      {/* Login card */}
-      <div style={{
-        position:'relative', zIndex:1,
-        background:C.panel, border:`1px solid ${C.border}`,
-        borderRadius:18, padding:'44px 44px 36px',
-        width:'100%', maxWidth:420,
-        boxShadow:`0 0 60px ${C.cyan}12`,
+        width:220, minWidth:220, background:C.bg1,
+        borderRight:`1px solid ${C.border}`,
+        display:'flex', flexDirection:'column',
+        height:'100vh', position:'fixed',
+        left:0, top:0, zIndex:200,
       }}>
 
         {/* Logo */}
-        <div style={{ textAlign:'center', marginBottom:36 }}>
-          <div style={{
-            width:54, height:54, borderRadius:14,
-            background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
-            display:'flex', alignItems:'center',
-            justifyContent:'center', fontSize:26,
-            margin:'0 auto 16px',
-            boxShadow:`0 0 30px ${C.cyan}30`,
-          }}>⚡</div>
-          <div style={{
-            fontSize:24, fontWeight:900,
-            color:C.cyan, letterSpacing:3,
-          }}>SENTIMENTIQ</div>
-          <div style={{
-            fontSize:11, color:C.dim,
-            marginTop:5, letterSpacing:1.5,
-          }}>
-            NTT DATA · AI ANALYTICS PLATFORM
-          </div>
-          <div style={{
-            marginTop:8, fontSize:10,
-            color:C.dim, letterSpacing:1,
-          }}>
-            v1.0.0 · Internal Use Only
+        <div style={{
+          padding:'20px 18px 16px',
+          borderBottom:`1px solid ${C.border}`,
+        }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{
+              width:34, height:34, borderRadius:9,
+              background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
+              display:'flex', alignItems:'center',
+              justifyContent:'center', fontSize:18, flexShrink:0,
+            }}>⚡</div>
+            <div>
+              <div style={{
+                fontSize:13, fontWeight:900,
+                color:C.cyan, letterSpacing:2,
+              }}>SENTIMENTIQ</div>
+              <div style={{ fontSize:9, color:C.dim, letterSpacing:1.5 }}>
+                NTT DATA · AI
+              </div>
+            </div>
           </div>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          style={{ display:'flex', flexDirection:'column', gap:18 }}
-        >
-
-          {/* Username */}
-          <div>
-            <label style={{
-              display:'block', fontSize:11, color:C.sub,
-              letterSpacing:1.5, fontWeight:700,
-              marginBottom:8, textTransform:'uppercase',
-            }}>Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={e=>setUsername(e.target.value)}
-              placeholder="Enter your username"
-              autoComplete="username"
-              spellCheck={false}
-              style={inp}
-              onFocus={e=>(e.target.style.borderColor=C.cyan)}
-              onBlur={e =>(e.target.style.borderColor=C.border)}
-            />
+        {/* Backend status */}
+        <div style={{
+          margin:'10px 10px 0',
+          background:C.green+'10',
+          border:`1px solid ${C.green}30`,
+          borderRadius:8, padding:'7px 10px',
+        }}>
+          <div style={{
+            fontSize:9, color:C.green,
+            fontWeight:700, letterSpacing:1,
+          }}>● BACKEND CONNECTED</div>
+          <div style={{ fontSize:8, color:C.dim, marginTop:2 }}>
+            {API}
           </div>
+        </div>
 
-          {/* Password */}
-          <div>
-            <label style={{
-              display:'block', fontSize:11, color:C.sub,
-              letterSpacing:1.5, fontWeight:700,
-              marginBottom:8, textTransform:'uppercase',
-            }}>Password</label>
-            <div style={{ position:'relative' }}>
-              <input
-                type={showPwd?'text':'password'}
-                value={password}
-                onChange={e=>setPassword(e.target.value)}
-                placeholder="Enter your password"
-                autoComplete="current-password"
-                style={{ ...inp, paddingRight:44 }}
-                onFocus={e=>(e.target.style.borderColor=C.cyan)}
-                onBlur={e =>(e.target.style.borderColor=C.border)}
-              />
-              <button
-                type="button"
-                onClick={()=>setShowPwd(v=>!v)}
-                style={{
-                  position:'absolute', right:12, top:'50%',
-                  transform:'translateY(-50%)',
-                  background:'transparent', border:'none',
-                  color:C.dim, cursor:'pointer', fontSize:16, padding:4,
-                }}
-              >{showPwd?'🙈':'👁️'}</button>
+        {/* Import new file */}
+        <div style={{ padding:'10px 10px 0' }}>
+          <input
+            ref={fileRef} type="file"
+            accept=".csv,.xlsx,.xls,.json,.txt"
+            style={{ display:'none' }}
+            onChange={e=>{
+              if (e.target.files[0])
+                uploadToBackend(e.target.files[0])
+              e.target.value=''
+            }}
+          />
+          <button
+            onClick={()=>fileRef.current?.click()}
+            onDragOver={e=>{e.preventDefault();setDragging(true)}}
+            onDragLeave={()=>setDragging(false)}
+            onDrop={onDrop}
+            style={{
+              width:'100%',
+              background:dragging?C.cyan+'30':C.cyan+'18',
+              border:`1px solid ${C.cyan}50`,
+              color:C.cyan, borderRadius:8, padding:'8px',
+              fontSize:11, fontWeight:700,
+              cursor:'pointer', fontFamily:'inherit',
+            }}
+          >⬆ Import New File</button>
+        </div>
+
+        {/* File info */}
+        {fileMeta && (
+          <div style={{
+            margin:'8px 10px 0',
+            background:C.violet+'12',
+            border:`1px solid ${C.violet}30`,
+            borderRadius:8, padding:'8px 10px',
+          }}>
+            <div style={{
+              fontSize:10, color:C.violet,
+              fontWeight:700,
+              whiteSpace:'nowrap', overflow:'hidden',
+              textOverflow:'ellipsis',
+            }}>
+              📁 {fileMeta.name}
+            </div>
+            <div style={{ fontSize:9, color:C.dim, marginTop:3 }}>
+              {fileMeta.rows?.toLocaleString()} rows from backend
             </div>
           </div>
+        )}
 
-          {/* Error message from backend */}
-          {error && (
+        {/* API calls info */}
+        {fileMeta && (
+          <div style={{
+            margin:'8px 10px 0',
+            background:C.bg2,
+            border:`1px solid ${C.border}`,
+            borderRadius:8, padding:'8px 10px',
+          }}>
             <div style={{
-              background:C.red+'15',
-              border:`1px solid ${C.red}40`,
-              borderRadius:8, padding:'10px 13px',
-              fontSize:12, color:C.red, fontWeight:600,
-            }}>⚠ {error}</div>
-          )}
+              fontSize:8, color:C.dim,
+              fontWeight:700, marginBottom:4,
+              letterSpacing:1,
+            }}>APIs CALLED</div>
+            {[
+              ['POST', '/data/upload', C.green],
+              ['GET',  '/data/metrics', C.cyan],
+              ['GET',  '/data/rows', C.violet],
+            ].map(([method, path, color])=>(
+              <div key={path} style={{
+                fontSize:8, marginBottom:3,
+                display:'flex', gap:4, alignItems:'center',
+              }}>
+                <span style={{
+                  color:'#000', background:color,
+                  borderRadius:3, padding:'1px 4px',
+                  fontWeight:900, fontSize:7,
+                }}>{method}</span>
+                <span style={{ color:C.dim }}>{path}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              background: loading
-                ? C.dim
-                : `linear-gradient(135deg,${C.cyan},${C.violet})`,
-              border:'none', borderRadius:10, padding:14,
-              width:'100%',
-              color: loading ? C.sub : '#000',
-              fontSize:14, fontWeight:900,
-              cursor: loading?'not-allowed':'pointer',
-              fontFamily:'inherit', letterSpacing:1, marginTop:4,
-            }}
-          >
-            {loading ? 'Signing in…' : 'SIGN IN →'}
-          </button>
-        </form>
+        {/* Nav */}
+        <nav style={{
+          flex:1, padding:'12px 10px',
+          display:'flex', flexDirection:'column', gap:4,
+        }}>
+          <div style={{
+            fontSize:9, color:C.dim, letterSpacing:1.5,
+            fontWeight:700, padding:'4px 8px 8px',
+          }}>NAVIGATION</div>
+
+          {NAV.map(item=>{
+            const active = page===item.id
+            return (
+              <button
+                key={item.id}
+                onClick={()=>setPage(item.id)}
+                style={{
+                  display:'flex', alignItems:'center', gap:12,
+                  background:active?C.cyan+'18':'transparent',
+                  border:`1px solid ${active?C.cyan+'50':'transparent'}`,
+                  borderRadius:9, padding:'10px 12px',
+                  cursor:'pointer', fontFamily:'inherit',
+                  textAlign:'left', width:'100%',
+                }}
+                onMouseEnter={e=>{
+                  if (!active) {
+                    e.currentTarget.style.background=C.bg2
+                    e.currentTarget.style.borderColor=C.border
+                  }
+                }}
+                onMouseLeave={e=>{
+                  if (!active) {
+                    e.currentTarget.style.background='transparent'
+                    e.currentTarget.style.borderColor='transparent'
+                  }
+                }}
+              >
+                <span style={{ fontSize:18 }}>{item.icon}</span>
+                <div>
+                  <div style={{
+                    fontSize:12, fontWeight:700,
+                    color:active?C.cyan:C.text,
+                  }}>{item.label}</div>
+                  <div style={{ fontSize:9, color:C.dim, marginTop:1 }}>
+                    {item.sub}
+                  </div>
+                </div>
+                {active && (
+                  <div style={{
+                    marginLeft:'auto', width:3, height:26,
+                    background:C.cyan, borderRadius:2,
+                  }}/>
+                )}
+              </button>
+            )
+          })}
+        </nav>
+
+        {/* Quick stats from backend */}
+        {metrics && (
+          <div style={{
+            margin:'0 10px 12px',
+            background:C.bg2, border:`1px solid ${C.border}`,
+            borderRadius:9, padding:'10px 12px',
+          }}>
+            <div style={{
+              fontSize:9, color:C.dim, letterSpacing:1.5,
+              fontWeight:700, marginBottom:8,
+            }}>BACKEND METRICS</div>
+            {[
+              ['CSAT',    `${metrics.csat_pct||0}%`,    C.green],
+              ['DSAT',    `${metrics.dsat_pct||0}%`,    C.red  ],
+              ['Neutral', `${metrics.neutral_pct||0}%`, C.amber],
+            ].map(([label,value,color])=>(
+              <div key={label} style={{
+                display:'flex', justifyContent:'space-between',
+                marginBottom:5, alignItems:'center',
+              }}>
+                <span style={{ fontSize:10, color:C.sub }}>
+                  {label}
+                </span>
+                <span style={{
+                  fontSize:12, fontWeight:900,
+                  color, fontFamily:'monospace',
+                }}>{value}</span>
+              </div>
+            ))}
+            <div style={{
+              marginTop:6, paddingTop:6,
+              borderTop:`1px solid ${C.border}`,
+              fontSize:8, color:C.dim,
+            }}>
+              Source: GET /data/metrics
+            </div>
+          </div>
+        )}
+
+        {/* User + logout */}
+        <div style={{
+          borderTop:`1px solid ${C.border}`, padding:'12px',
+        }}>
+          <div style={{
+            display:'flex', alignItems:'center',
+            justifyContent:'space-between', gap:8,
+          }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{
+                fontSize:11, fontWeight:700, color:roleColor,
+                whiteSpace:'nowrap', overflow:'hidden',
+                textOverflow:'ellipsis',
+              }}>{user?.name}</div>
+              <div style={{ fontSize:9, color:C.dim, marginTop:1 }}>
+                {user?.role}
+              </div>
+            </div>
+            <button onClick={onLogout} style={{
+              background:C.red+'15', border:`1px solid ${C.red}40`,
+              color:C.red, borderRadius:6, padding:'5px 9px',
+              fontSize:10, fontWeight:700,
+              cursor:'pointer', fontFamily:'inherit', flexShrink:0,
+            }}>OUT</button>
+          </div>
+        </div>
       </div>
 
-      {/* Footer */}
+      {/* RIGHT CONTENT */}
       <div style={{
-        position:'relative', zIndex:1,
-        marginTop:20, fontSize:10,
-        color:C.dim, textAlign:'center',
+        marginLeft:220, flex:1,
+        height:'100vh', overflowY:'auto', overflowX:'hidden',
       }}>
-        NTT Data Internal Platform · Authorized Access Only
+
+        {/* CHARTS PAGE */}
+        {page==='charts' && (
+          <div style={{ padding:'24px' }}>
+            <div style={{ marginBottom:20 }}>
+              <h1 style={{
+                fontSize:20, fontWeight:900,
+                color:C.cyan, margin:0, letterSpacing:1,
+              }}>Charts & Analytics</h1>
+              <p style={{ fontSize:11, color:C.sub, margin:'4px 0 0' }}>
+                {metrics?.total?.toLocaleString()} records ·
+                Data from backend API
+              </p>
+              {/* Show which API was called */}
+              <div style={{
+                marginTop:6, fontSize:9,
+                color:C.dim, fontFamily:'monospace',
+              }}>
+                Source: GET {API}/data/metrics
+              </div>
+            </div>
+
+            {/* KPI cards — from backend */}
+            <div style={{
+              display:'grid', gridTemplateColumns:'repeat(4,1fr)',
+              gap:12, marginBottom:20,
+            }}>
+              <KPI
+                label="Total Records"
+                value={(metrics?.total||0).toLocaleString()}
+                sub="from backend"
+                accent={C.sky}
+              />
+              <KPI
+                label="CSAT"
+                value={`${metrics?.csat_pct||0}%`}
+                sub={`${metrics?.csat_n||0} satisfied`}
+                accent={C.green}
+              />
+              <KPI
+                label="DSAT"
+                value={`${metrics?.dsat_pct||0}%`}
+                sub={`${metrics?.dsat_n||0} dissatisfied`}
+                accent={C.red}
+              />
+              <KPI
+                label="Neutral"
+                value={`${metrics?.neutral_pct||0}%`}
+                sub={`${metrics?.neutral_n||0} neutral`}
+                accent={C.amber}
+              />
+            </div>
+
+            {/* Charts row 1 */}
+            <div style={{
+              display:'grid', gridTemplateColumns:'1fr 1fr',
+              gap:14, marginBottom:14,
+            }}>
+
+              {/* Sentiment Distribution */}
+              <div style={{
+                background:C.panel, border:`1px solid ${C.border}`,
+                borderRadius:12, padding:'18px 20px',
+              }}>
+                <div style={{
+                  fontSize:12, fontWeight:700,
+                  color:C.text, marginBottom:2,
+                }}>Sentiment Distribution</div>
+                <div style={{
+                  fontSize:10, color:C.sub, marginBottom:14,
+                }}>
+                  Pos: {metrics?.pos_n||0} ·
+                  Neg: {metrics?.neg_n||0} ·
+                  Neu: {metrics?.neutral_n||0}
+                </div>
+                <ResponsiveContainer width="100%" height={210}>
+                  <BarChart data={sentBarData} barSize={55}>
+                    <CartesianGrid
+                      strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="name" stroke={C.dim} fontSize={11}/>
+                    <YAxis stroke={C.dim} fontSize={10}/>
+                    <Tooltip contentStyle={TT}
+                      formatter={(v,n,p)=>[
+                        `${v} (${p.payload.pct}%)`,'Count'
+                      ]}/>
+                    <Bar dataKey="value" radius={[6,6,0,0]}>
+                      <Cell fill={C.green}/>
+                      <Cell fill={C.red}/>
+                      <Cell fill={C.amber}/>
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* CSAT vs DSAT */}
+              <div style={{
+                background:C.panel, border:`1px solid ${C.border}`,
+                borderRadius:12, padding:'18px 20px',
+              }}>
+                <div style={{
+                  fontSize:12, fontWeight:700,
+                  color:C.text, marginBottom:2,
+                }}>CSAT vs DSAT</div>
+                <div style={{
+                  fontSize:10, color:C.sub, marginBottom:14,
+                }}>
+                  CSAT: {metrics?.csat_pct||0}% ·
+                  DSAT: {metrics?.dsat_pct||0}%
+                </div>
+                <ResponsiveContainer width="100%" height={210}>
+                  <BarChart data={csatDsatBar} barSize={90}>
+                    <CartesianGrid
+                      strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="name" stroke={C.dim} fontSize={12}/>
+                    <YAxis
+                      stroke={C.dim} fontSize={10}
+                      domain={[0,100]} unit="%"/>
+                    <Tooltip
+                      contentStyle={TT}
+                      formatter={v=>[`${v}%`]}/>
+                    <Bar dataKey="value" radius={[6,6,0,0]}>
+                      {csatDsatBar.map((d,i)=>(
+                        <Cell key={i} fill={d.fill}/>
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Team + Region charts */}
+            {(teamData.length>0||regionData.length>0) && (
+              <div style={{
+                display:'grid',
+                gridTemplateColumns:
+                  teamData.length>0&&regionData.length>0
+                    ?'1fr 1fr':'1fr',
+                gap:14, marginBottom:14,
+              }}>
+                {teamData.length>0 && (
+                  <div style={{
+                    background:C.panel, border:`1px solid ${C.border}`,
+                    borderRadius:12, padding:'18px 20px',
+                  }}>
+                    <div style={{
+                      fontSize:12, fontWeight:700,
+                      color:C.text, marginBottom:2,
+                    }}>CSAT% and DSAT% by Team</div>
+                    <div style={{
+                      fontSize:10, color:C.sub, marginBottom:14,
+                    }}>Team performance</div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={teamData} barSize={12}>
+                        <CartesianGrid
+                          strokeDasharray="3 3" stroke={C.border}/>
+                        <XAxis
+                          dataKey="name" stroke={C.dim} fontSize={9}
+                          interval={0} angle={-20}
+                          textAnchor="end" height={50}/>
+                        <YAxis stroke={C.dim} fontSize={10} unit="%"/>
+                        <Tooltip
+                          contentStyle={TT}
+                          formatter={v=>[`${v}%`]}/>
+                        <Legend
+                          iconType="circle" iconSize={8}
+                          wrapperStyle={{fontSize:11}}/>
+                        <Bar
+                          dataKey="CSAT%"
+                          fill={C.green} radius={[4,4,0,0]}/>
+                        <Bar
+                          dataKey="DSAT%"
+                          fill={C.red} radius={[4,4,0,0]}/>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {regionData.length>0 && (
+                  <div style={{
+                    background:C.panel, border:`1px solid ${C.border}`,
+                    borderRadius:12, padding:'18px 20px',
+                  }}>
+                    <div style={{
+                      fontSize:12, fontWeight:700,
+                      color:C.text, marginBottom:2,
+                    }}>CSAT% and DSAT% by Region</div>
+                    <div style={{
+                      fontSize:10, color:C.sub, marginBottom:14,
+                    }}>Regional performance</div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={regionData} barSize={12}>
+                        <CartesianGrid
+                          strokeDasharray="3 3" stroke={C.border}/>
+                        <XAxis
+                          dataKey="name" stroke={C.dim} fontSize={9}
+                          interval={0} angle={-20}
+                          textAnchor="end" height={60}/>
+                        <YAxis stroke={C.dim} fontSize={10} unit="%"/>
+                        <Tooltip
+                          contentStyle={TT}
+                          formatter={v=>[`${v}%`]}/>
+                        <Legend
+                          iconType="circle" iconSize={8}
+                          wrapperStyle={{fontSize:11}}/>
+                        <Bar
+                          dataKey="CSAT%"
+                          fill={C.cyan} radius={[4,4,0,0]}/>
+                        <Bar
+                          dataKey="DSAT%"
+                          fill={C.violet} radius={[4,4,0,0]}/>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* DATA PAGE */}
+        {page==='data' && (
+          <div style={{ padding:'24px' }}>
+            <div style={{
+              display:'flex', alignItems:'center',
+              justifyContent:'space-between',
+              marginBottom:20, flexWrap:'wrap', gap:12,
+            }}>
+              <div>
+                <h1 style={{
+                  fontSize:20, fontWeight:900,
+                  color:C.cyan, margin:0, letterSpacing:1,
+                }}>Data</h1>
+                <p style={{ fontSize:11, color:C.sub, margin:'4px 0 0' }}>
+                  {rows.length.toLocaleString()} rows from backend ·
+                  Sort · Filter · Export
+                </p>
+                <div style={{
+                  fontSize:9, color:C.dim,
+                  fontFamily:'monospace', marginTop:4,
+                }}>
+                  Source: GET {API}/data/rows
+                </div>
+              </div>
+            </div>
+
+            <DataTable rows={rows} onNotify={notify}/>
+          </div>
+        )}
       </div>
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0}
-        body{background:${C.bg0}}
+        body{background:${C.bg0};overflow:hidden}
+        select option{background:${C.bg2};color:${C.text}}
         input::placeholder{color:${C.dim}}
         button:active{transform:scale(.97)}
+        ::-webkit-scrollbar{width:8px;height:8px}
+        ::-webkit-scrollbar-track{background:${C.bg1}}
+        ::-webkit-scrollbar-thumb{
+          background:${C.border};border-radius:4px}
+        ::-webkit-scrollbar-thumb:hover{background:${C.dim}}
       `}</style>
     </div>
   )
 }
+
+
+
+
+
+
+
