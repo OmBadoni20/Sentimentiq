@@ -1,11 +1,10 @@
-import { useState, useRef, useMemo, useEffect } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import DataTable from '../components/DataTable.jsx'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, Cell,
 } from 'recharts'
 
-// ── Backend API URL ───────────────────────────────────────
 const API = 'http://localhost:8000'
 
 const C = {
@@ -46,7 +45,7 @@ function KPI({ label, value, sub, accent }) {
       }}>
         <div style={{
           height:'100%',
-          width:`${Math.min(parseFloat(value)||0, 100)}%`,
+          width:`${Math.min(parseFloat(value)||0,100)}%`,
           background:accent, borderRadius:2,
           transition:'width .6s',
         }}/>
@@ -70,28 +69,22 @@ function Toast({ toast }) {
 }
 
 export default function Dashboard({ user, rows, setRows, onLogout }) {
-  const [page,       setPage]      = useState('charts')
-  const [loading,    setLoading]   = useState(false)
-  const [error,      setError]     = useState('')
-  const [dragging,   setDragging]  = useState(false)
-  const [toast,      setToast]     = useState(null)
-  const [metrics,    setMetrics]   = useState(null)
-  const [backendRows,setBackendRows]= useState([])
-  const [fileMeta,   setFileMeta]  = useState(null)
-  const [apiError,   setApiError]  = useState('')
+  const [page,     setPage]    = useState('charts')
+  const [loading,  setLoading] = useState(false)
+  const [error,    setError]   = useState('')
+  const [dragging, setDragging]= useState(false)
+  const [toast,    setToast]   = useState(null)
+  const [metrics,  setMetrics] = useState(null)
+  const [fileMeta, setFileMeta]= useState(null)
   const fileRef = useRef(null)
 
-  // ── Token from login ──────────────────────────────────
   const token = localStorage.getItem('token')
 
   // ── ALL hooks at top ──────────────────────────────────
   const sentBarData = useMemo(() => !metrics ? [] : [
-    { name:'Positive', value:metrics.pos_n||0,
-      pct:metrics.csat_pct||0 },
-    { name:'Negative', value:metrics.neg_n||0,
-      pct:metrics.dsat_pct||0 },
-    { name:'Neutral',  value:metrics.neutral_n||0,
-      pct:metrics.neutral_pct||0 },
+    { name:'Positive', value:metrics.pos_n||0,     pct:metrics.csat_pct||0    },
+    { name:'Negative', value:metrics.neg_n||0,     pct:metrics.dsat_pct||0    },
+    { name:'Neutral',  value:metrics.neutral_n||0, pct:metrics.neutral_pct||0 },
   ], [metrics])
 
   const csatDsatBar = useMemo(() => !metrics ? [] : [
@@ -102,25 +95,25 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
   const teamData = useMemo(() => {
     if (!metrics?.team_breakdown) return []
     return Object.entries(metrics.team_breakdown)
-      .map(([name, v]) => ({
+      .map(([name,v])=>({
         name,
         'CSAT%': v.csat_pct,
         'DSAT%': v.dsat_pct,
       }))
-      .sort((a,b) => b['CSAT%'] - a['CSAT%'])
-      .slice(0, 8)
+      .sort((a,b)=>b['CSAT%']-a['CSAT%'])
+      .slice(0,8)
   }, [metrics])
 
   const regionData = useMemo(() => {
     if (!metrics?.region_breakdown) return []
     return Object.entries(metrics.region_breakdown)
-      .map(([name, v]) => ({
+      .map(([name,v])=>({
         name,
         'CSAT%': v.csat_pct,
         'DSAT%': v.dsat_pct,
       }))
-      .sort((a,b) => b['CSAT%'] - a['CSAT%'])
-      .slice(0, 8)
+      .sort((a,b)=>b['CSAT%']-a['CSAT%'])
+      .slice(0,8)
   }, [metrics])
 
   const ROLE_COLOR = { Admin:C.red, Manager:C.amber, Developer:C.cyan }
@@ -131,49 +124,12 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
     setTimeout(()=>setToast(null), 3500)
   }
 
-  // ── Fetch metrics from backend ─────────────────────────
-  async function fetchMetrics() {
-    try {
-      const res = await fetch(`${API}/data/metrics`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      const data = await res.json()
-      if (data.total === 0) return
-      console.log('[Dashboard] Metrics from backend:', data)
-      setMetrics(data)
-    } catch(e) {
-      console.error('[Dashboard] Metrics fetch failed:', e)
-      setApiError('Could not fetch metrics from backend')
-    }
-  }
-
-  // ── Fetch rows from backend ────────────────────────────
-  async function fetchRows(limit = 5000) {
-    try {
-      const res = await fetch(
-        `${API}/data/rows?limit=${limit}`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      )
-      const data = await res.json()
-      if (data.rows && data.rows.length) {
-        console.log('[Dashboard] Rows from backend:', data.total)
-        setBackendRows(data.rows)
-        setRows(data.rows)
-      }
-    } catch(e) {
-      console.error('[Dashboard] Rows fetch failed:', e)
-    }
-  }
-
-  // ── Upload file to backend ─────────────────────────────
   async function uploadToBackend(file) {
     setError(''); setLoading(true)
-    setMetrics(null); setBackendRows([])
-    setRows([])
+    setMetrics(null); setRows([])
 
     try {
-      // Step 1 — Send file to backend
-      console.log('[Dashboard] Uploading to backend:', file.name)
+      // Step 1 — Upload file
       const formData = new FormData()
       formData.append('file', file)
 
@@ -189,44 +145,34 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
       }
 
       const uploadData = await uploadRes.json()
-      console.log('[Dashboard] Upload success:', uploadData)
-
       setFileMeta({
-        name : uploadData.filename,
-        rows : uploadData.rows,
-        cols : uploadData.columns,
+        name: uploadData.filename,
+        rows: uploadData.rows,
       })
 
-      notify(
-        `✓ Imported ${uploadData.rows.toLocaleString()} rows from "${uploadData.filename}"`,
-        C.green
-      )
-
-      // Step 2 — Fetch metrics from backend
-      console.log('[Dashboard] Fetching metrics from backend...')
+      // Step 2 — Fetch metrics
       const metricsRes = await fetch(`${API}/data/metrics`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       const metricsData = await metricsRes.json()
-      console.log('[Dashboard] Metrics received:', metricsData)
       setMetrics(metricsData)
 
-      // Step 3 — Fetch rows from backend
-      console.log('[Dashboard] Fetching rows from backend...')
+      // Step 3 — Fetch rows
       const rowsRes = await fetch(
         `${API}/data/rows?limit=10000`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       )
       const rowsData = await rowsRes.json()
-      console.log('[Dashboard] Rows received:', rowsData.total)
-      setBackendRows(rowsData.rows || [])
       setRows(rowsData.rows || [])
 
       setLoading(false)
       setPage('charts')
+      notify(
+        `Imported ${uploadData.rows.toLocaleString()} rows`,
+        C.green
+      )
 
     } catch(err) {
-      console.error('[Dashboard] Error:', err)
       setError(err.message)
       notify(err.message, C.red, '⚠')
       setLoading(false)
@@ -235,17 +181,16 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
 
   function onDrop(e) {
     e.preventDefault(); setDragging(false)
-    if (e.dataTransfer.files[0]) {
+    if (e.dataTransfer.files[0])
       uploadToBackend(e.dataTransfer.files[0])
-    }
   }
 
   const NAV = [
-    { id:'charts', icon:'📊', label:'Charts',  sub:'Analytics & KPIs' },
-    { id:'data',   icon:'📋', label:'Data',    sub:'Table & Export'   },
+    { id:'charts', icon:'📊', label:'Charts', sub:'Analytics & KPIs' },
+    { id:'data',   icon:'📋', label:'Data',   sub:'Table & Export'   },
   ]
 
-  // ── IMPORT SCREEN (no data yet) ────────────────────────
+  // ── IMPORT SCREEN ──────────────────────────────────────
   if (!rows.length && !loading) {
     return (
       <div style={{
@@ -280,14 +225,6 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
           </div>
           <div style={{ flex:1 }}/>
           <div style={{
-            background:C.green+'12',
-            border:`1px solid ${C.green}30`,
-            borderRadius:7, padding:'4px 12px',
-            fontSize:10, color:C.green, fontWeight:700,
-          }}>
-            ● Backend Connected
-          </div>
-          <div style={{
             background:roleColor+'12',
             border:`1px solid ${roleColor}40`,
             borderRadius:7, padding:'4px 12px',
@@ -306,12 +243,13 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
           }}>Sign Out</button>
         </header>
 
-        {/* Import Card */}
+        {/* Import card */}
         <div style={{
           flex:1, display:'flex',
           alignItems:'center', justifyContent:'center', padding:24,
         }}>
           <div style={{ width:'100%', maxWidth:520 }}>
+
             <div style={{ textAlign:'center', marginBottom:28 }}>
               <div style={{ fontSize:48, marginBottom:12 }}>📊</div>
               <h1 style={{
@@ -321,12 +259,6 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
               <p style={{ fontSize:12, color:C.sub, marginTop:8 }}>
                 Import your data file to get started
               </p>
-              <div style={{
-                marginTop:10, fontSize:10,
-                color:C.green, fontWeight:700,
-              }}>
-                ● Connected to backend API
-              </div>
             </div>
 
             <div style={{
@@ -338,16 +270,9 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
                 color:C.text, marginBottom:4,
               }}>Import Data File</div>
               <div style={{
-                fontSize:10, color:C.sub, marginBottom:6,
+                fontSize:10, color:C.sub, marginBottom:20,
               }}>
-                File will be uploaded to backend server
-              </div>
-              <div style={{
-                fontSize:9, color:C.dim, marginBottom:20,
-                background:C.bg2, borderRadius:6,
-                padding:'6px 10px',
-              }}>
-                POST {API}/data/upload
+                Supports: CSV · Excel (.xlsx) · JSON · TXT
               </div>
 
               <input
@@ -397,8 +322,7 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
                   background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
                   border:'none', borderRadius:10, padding:'13px',
                   color:'#000', fontSize:13, fontWeight:900,
-                  cursor:'pointer', fontFamily:'inherit',
-                  letterSpacing:1,
+                  cursor:'pointer', fontFamily:'inherit', letterSpacing:1,
                 }}
               >⬆ Browse & Import File</button>
 
@@ -426,6 +350,12 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
             </div>
           </div>
         </div>
+
+        <style>{`
+          *{box-sizing:border-box;margin:0;padding:0}
+          body{background:${C.bg0}}
+          button:active{transform:scale(.97)}
+        `}</style>
       </div>
     )
   }
@@ -440,14 +370,13 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
         fontFamily:'monospace', color:C.text, gap:16,
       }}>
         <div style={{ fontSize:48 }}>⏳</div>
-        <div style={{ fontSize:16, fontWeight:700, color:C.amber }}>
-          Uploading to backend…
+        <div style={{
+          fontSize:16, fontWeight:700, color:C.amber,
+        }}>
+          Importing file, please wait…
         </div>
         <div style={{ fontSize:11, color:C.dim }}>
-          POST {API}/data/upload
-        </div>
-        <div style={{ fontSize:11, color:C.dim, marginTop:8 }}>
-          Then fetching metrics + rows from backend…
+          This may take a few seconds
         </div>
       </div>
     )
@@ -496,24 +425,8 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
           </div>
         </div>
 
-        {/* Backend status */}
-        <div style={{
-          margin:'10px 10px 0',
-          background:C.green+'10',
-          border:`1px solid ${C.green}30`,
-          borderRadius:8, padding:'7px 10px',
-        }}>
-          <div style={{
-            fontSize:9, color:C.green,
-            fontWeight:700, letterSpacing:1,
-          }}>● BACKEND CONNECTED</div>
-          <div style={{ fontSize:8, color:C.dim, marginTop:2 }}>
-            {API}
-          </div>
-        </div>
-
         {/* Import new file */}
-        <div style={{ padding:'10px 10px 0' }}>
+        <div style={{ padding:'12px 10px 0' }}>
           <input
             ref={fileRef} type="file"
             accept=".csv,.xlsx,.xls,.json,.txt"
@@ -543,55 +456,23 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
         {/* File info */}
         {fileMeta && (
           <div style={{
-            margin:'8px 10px 0',
+            margin:'10px 10px 0',
             background:C.violet+'12',
             border:`1px solid ${C.violet}30`,
             borderRadius:8, padding:'8px 10px',
           }}>
             <div style={{
-              fontSize:10, color:C.violet,
-              fontWeight:700,
+              fontSize:10, color:C.violet, fontWeight:700,
               whiteSpace:'nowrap', overflow:'hidden',
               textOverflow:'ellipsis',
             }}>
-              📁 {fileMeta.name}
+              📁 {fileMeta.name.length>22
+                ? fileMeta.name.slice(0,20)+'…'
+                : fileMeta.name}
             </div>
             <div style={{ fontSize:9, color:C.dim, marginTop:3 }}>
-              {fileMeta.rows?.toLocaleString()} rows from backend
+              {fileMeta.rows?.toLocaleString()} rows loaded
             </div>
-          </div>
-        )}
-
-        {/* API calls info */}
-        {fileMeta && (
-          <div style={{
-            margin:'8px 10px 0',
-            background:C.bg2,
-            border:`1px solid ${C.border}`,
-            borderRadius:8, padding:'8px 10px',
-          }}>
-            <div style={{
-              fontSize:8, color:C.dim,
-              fontWeight:700, marginBottom:4,
-              letterSpacing:1,
-            }}>APIs CALLED</div>
-            {[
-              ['POST', '/data/upload', C.green],
-              ['GET',  '/data/metrics', C.cyan],
-              ['GET',  '/data/rows', C.violet],
-            ].map(([method, path, color])=>(
-              <div key={path} style={{
-                fontSize:8, marginBottom:3,
-                display:'flex', gap:4, alignItems:'center',
-              }}>
-                <span style={{
-                  color:'#000', background:color,
-                  borderRadius:3, padding:'1px 4px',
-                  fontWeight:900, fontSize:7,
-                }}>{method}</span>
-                <span style={{ color:C.dim }}>{path}</span>
-              </div>
-            ))}
           </div>
         )}
 
@@ -653,7 +534,7 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
           })}
         </nav>
 
-        {/* Quick stats from backend */}
+        {/* Quick stats */}
         {metrics && (
           <div style={{
             margin:'0 10px 12px',
@@ -663,7 +544,7 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
             <div style={{
               fontSize:9, color:C.dim, letterSpacing:1.5,
               fontWeight:700, marginBottom:8,
-            }}>BACKEND METRICS</div>
+            }}>QUICK STATS</div>
             {[
               ['CSAT',    `${metrics.csat_pct||0}%`,    C.green],
               ['DSAT',    `${metrics.dsat_pct||0}%`,    C.red  ],
@@ -682,13 +563,6 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
                 }}>{value}</span>
               </div>
             ))}
-            <div style={{
-              marginTop:6, paddingTop:6,
-              borderTop:`1px solid ${C.border}`,
-              fontSize:8, color:C.dim,
-            }}>
-              Source: GET /data/metrics
-            </div>
           </div>
         )}
 
@@ -735,19 +609,11 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
                 color:C.cyan, margin:0, letterSpacing:1,
               }}>Charts & Analytics</h1>
               <p style={{ fontSize:11, color:C.sub, margin:'4px 0 0' }}>
-                {metrics?.total?.toLocaleString()} records ·
-                Data from backend API
+                {metrics?.total?.toLocaleString()} records analysed
               </p>
-              {/* Show which API was called */}
-              <div style={{
-                marginTop:6, fontSize:9,
-                color:C.dim, fontFamily:'monospace',
-              }}>
-                Source: GET {API}/data/metrics
-              </div>
             </div>
 
-            {/* KPI cards — from backend */}
+            {/* KPI cards */}
             <div style={{
               display:'grid', gridTemplateColumns:'repeat(4,1fr)',
               gap:12, marginBottom:20,
@@ -755,7 +621,7 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
               <KPI
                 label="Total Records"
                 value={(metrics?.total||0).toLocaleString()}
-                sub="from backend"
+                sub="records loaded"
                 accent={C.sky}
               />
               <KPI
@@ -783,8 +649,6 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
               display:'grid', gridTemplateColumns:'1fr 1fr',
               gap:14, marginBottom:14,
             }}>
-
-              {/* Sentiment Distribution */}
               <div style={{
                 background:C.panel, border:`1px solid ${C.border}`,
                 borderRadius:12, padding:'18px 20px',
@@ -802,8 +666,7 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
                 </div>
                 <ResponsiveContainer width="100%" height={210}>
                   <BarChart data={sentBarData} barSize={55}>
-                    <CartesianGrid
-                      strokeDasharray="3 3" stroke={C.border}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                     <XAxis dataKey="name" stroke={C.dim} fontSize={11}/>
                     <YAxis stroke={C.dim} fontSize={10}/>
                     <Tooltip contentStyle={TT}
@@ -819,7 +682,6 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
                 </ResponsiveContainer>
               </div>
 
-              {/* CSAT vs DSAT */}
               <div style={{
                 background:C.panel, border:`1px solid ${C.border}`,
                 borderRadius:12, padding:'18px 20px',
@@ -836,14 +698,11 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
                 </div>
                 <ResponsiveContainer width="100%" height={210}>
                   <BarChart data={csatDsatBar} barSize={90}>
-                    <CartesianGrid
-                      strokeDasharray="3 3" stroke={C.border}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                     <XAxis dataKey="name" stroke={C.dim} fontSize={12}/>
-                    <YAxis
-                      stroke={C.dim} fontSize={10}
+                    <YAxis stroke={C.dim} fontSize={10}
                       domain={[0,100]} unit="%"/>
-                    <Tooltip
-                      contentStyle={TT}
+                    <Tooltip contentStyle={TT}
                       formatter={v=>[`${v}%`]}/>
                     <Bar dataKey="value" radius={[6,6,0,0]}>
                       {csatDsatBar.map((d,i)=>(
@@ -855,7 +714,7 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
               </div>
             </div>
 
-            {/* Team + Region charts */}
+            {/* Team + Region */}
             {(teamData.length>0||regionData.length>0) && (
               <div style={{
                 display:'grid',
@@ -878,30 +737,21 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
                     }}>Team performance</div>
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={teamData} barSize={12}>
-                        <CartesianGrid
-                          strokeDasharray="3 3" stroke={C.border}/>
-                        <XAxis
-                          dataKey="name" stroke={C.dim} fontSize={9}
+                        <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                        <XAxis dataKey="name" stroke={C.dim} fontSize={9}
                           interval={0} angle={-20}
                           textAnchor="end" height={50}/>
                         <YAxis stroke={C.dim} fontSize={10} unit="%"/>
-                        <Tooltip
-                          contentStyle={TT}
+                        <Tooltip contentStyle={TT}
                           formatter={v=>[`${v}%`]}/>
-                        <Legend
-                          iconType="circle" iconSize={8}
+                        <Legend iconType="circle" iconSize={8}
                           wrapperStyle={{fontSize:11}}/>
-                        <Bar
-                          dataKey="CSAT%"
-                          fill={C.green} radius={[4,4,0,0]}/>
-                        <Bar
-                          dataKey="DSAT%"
-                          fill={C.red} radius={[4,4,0,0]}/>
+                        <Bar dataKey="CSAT%" fill={C.green} radius={[4,4,0,0]}/>
+                        <Bar dataKey="DSAT%" fill={C.red}   radius={[4,4,0,0]}/>
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 )}
-
                 {regionData.length>0 && (
                   <div style={{
                     background:C.panel, border:`1px solid ${C.border}`,
@@ -916,25 +766,17 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
                     }}>Regional performance</div>
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={regionData} barSize={12}>
-                        <CartesianGrid
-                          strokeDasharray="3 3" stroke={C.border}/>
-                        <XAxis
-                          dataKey="name" stroke={C.dim} fontSize={9}
+                        <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                        <XAxis dataKey="name" stroke={C.dim} fontSize={9}
                           interval={0} angle={-20}
                           textAnchor="end" height={60}/>
                         <YAxis stroke={C.dim} fontSize={10} unit="%"/>
-                        <Tooltip
-                          contentStyle={TT}
+                        <Tooltip contentStyle={TT}
                           formatter={v=>[`${v}%`]}/>
-                        <Legend
-                          iconType="circle" iconSize={8}
+                        <Legend iconType="circle" iconSize={8}
                           wrapperStyle={{fontSize:11}}/>
-                        <Bar
-                          dataKey="CSAT%"
-                          fill={C.cyan} radius={[4,4,0,0]}/>
-                        <Bar
-                          dataKey="DSAT%"
-                          fill={C.violet} radius={[4,4,0,0]}/>
+                        <Bar dataKey="CSAT%" fill={C.cyan}   radius={[4,4,0,0]}/>
+                        <Bar dataKey="DSAT%" fill={C.violet} radius={[4,4,0,0]}/>
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -947,29 +789,15 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
         {/* DATA PAGE */}
         {page==='data' && (
           <div style={{ padding:'24px' }}>
-            <div style={{
-              display:'flex', alignItems:'center',
-              justifyContent:'space-between',
-              marginBottom:20, flexWrap:'wrap', gap:12,
-            }}>
-              <div>
-                <h1 style={{
-                  fontSize:20, fontWeight:900,
-                  color:C.cyan, margin:0, letterSpacing:1,
-                }}>Data</h1>
-                <p style={{ fontSize:11, color:C.sub, margin:'4px 0 0' }}>
-                  {rows.length.toLocaleString()} rows from backend ·
-                  Sort · Filter · Export
-                </p>
-                <div style={{
-                  fontSize:9, color:C.dim,
-                  fontFamily:'monospace', marginTop:4,
-                }}>
-                  Source: GET {API}/data/rows
-                </div>
-              </div>
+            <div style={{ marginBottom:20 }}>
+              <h1 style={{
+                fontSize:20, fontWeight:900,
+                color:C.cyan, margin:0, letterSpacing:1,
+              }}>Data</h1>
+              <p style={{ fontSize:11, color:C.sub, margin:'4px 0 0' }}>
+                Sort · Filter · Export · 200 rows per page
+              </p>
             </div>
-
             <DataTable rows={rows} onNotify={notify}/>
           </div>
         )}
@@ -990,10 +818,3 @@ export default function Dashboard({ user, rows, setRows, onLogout }) {
     </div>
   )
 }
-
-
-
-
-
-
-
