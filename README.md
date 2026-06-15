@@ -1,541 +1,824 @@
-import { useState, useMemo } from 'react'
+{
+  "app": {
+    "name": "SentimentIQ",
+    "version": "1.0.0",
+    "company": "NTT Data"
+  },
 
-const PAGE_SIZE = 200
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "reload": true
+  },
+
+  "cors": {
+    "allow_origins": [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://localhost:3000"
+    ]
+  },
+
+  "auth": {
+    "secret_key": "sentimentiq_ntt_secret_2026",
+    "token_expire_minutes": 480
+  },
+
+  "users": [
+    {
+      "username": "om.badoni",
+      "password": "NTT@2026",
+      "role": "Developer",
+      "name": "Om Badoni"
+    },
+    {
+      "username": "manager",
+      "password": "Manager@2026",
+      "role": "Manager",
+      "name": "NTT Manager"
+    },
+    {
+      "username": "admin",
+      "password": "Admin@2026",
+      "role": "Admin",
+      "name": "Admin User"
+    }
+  ]
+}
+
+
+
+
+
+
+# ============================================================
+# AUTH MICROSERVICE
+# Handles login, token creation, user verification
+# Reads credentials from config.json
+# ============================================================
+
+import json
+import os
+import hashlib
+from datetime import datetime, timedelta
+from typing import Optional
+
+# ── Load config ───────────────────────────────────────────
+def load_config() -> dict:
+    config_path = os.path.join(
+        os.path.dirname(__file__), '..', 'config.json'
+    )
+    with open(config_path, 'r') as f:
+        return json.load(f)
+
+CONFIG = load_config()
+USERS  = CONFIG['users']
+AUTH   = CONFIG['auth']
+
+print(f"[AuthService] Loaded {len(USERS)} users from config.json")
+
+
+# ── Find user from config ─────────────────────────────────
+def get_user(username: str) -> Optional[dict]:
+    """
+    Fetches user from config.json by username
+    Returns user dict or None if not found
+    """
+    for user in USERS:
+        if user['username'].lower() == username.lower():
+            return user
+    return None
+
+
+# ── Verify password ───────────────────────────────────────
+def verify_password(plain_password: str,
+                    stored_password: str) -> bool:
+    """
+    Compares entered password with stored password
+    Currently plain text — can upgrade to hashing later
+    """
+    return plain_password == stored_password
+
+
+# ── Authenticate user ─────────────────────────────────────
+def authenticate_user(username: str,
+                      password: str) -> Optional[dict]:
+    """
+    Main authentication function:
+    1. Fetch user from config
+    2. Verify password
+    3. Return user if valid, None if invalid
+    """
+    print(f"[AuthService] Login attempt: {username}")
+
+    user = get_user(username)
+    if not user:
+        print(f"[AuthService] User not found: {username}")
+        return None
+
+    if not verify_password(password, user['password']):
+        print(f"[AuthService] Wrong password: {username}")
+        return None
+
+    print(f"[AuthService] Login success: {username} ({user['role']})")
+    return user
+
+
+# ── Create simple token ───────────────────────────────────
+def create_token(user: dict) -> str:
+    """
+    Creates a simple session token
+    Contains: username + role + timestamp
+    """
+    data = f"{user['username']}:{user['role']}:{datetime.now()}"
+    token = hashlib.sha256(data.encode()).hexdigest()
+    return token
+
+
+# ── Get all users (for admin) ─────────────────────────────
+def get_all_users() -> list:
+    """
+    Returns all users without passwords
+    """
+    return [
+        {
+            "username": u['username'],
+            "name"    : u['name'],
+            "role"    : u['role'],
+        }
+        for u in USERS
+    ]
+
+
+
+
+
+
+    # ============================================================
+# DATA MICROSERVICE
+# Handles file upload, metrics calculation, data retrieval
+# ============================================================
+
+import io
+import pandas as pd
+from typing import Optional
+
+print("[DataService] Data microservice loaded")
+
+# ── Global data store ─────────────────────────────────────
+current_df = pd.DataFrame()
+
+
+# ── Helper — is true ──────────────────────────────────────
+def is_true(val) -> bool:
+    """Check if a value means YES/TRUE/1"""
+    if pd.isna(val):
+        return False
+    return val == 1 or val == True or \
+        str(val).strip().lower() in ['1', 'true', 'yes']
+
+
+# ── Helper — find column ──────────────────────────────────
+def find_col(df: pd.DataFrame, *names) -> Optional[str]:
+    """
+    Find column by name ignoring case and spaces
+    Tries multiple name variations
+    """
+    cols = [c.strip().lower().replace(' ', '')
+            for c in df.columns]
+    for n in names:
+        n_clean = n.lower().replace(' ', '')
+        for i, c in enumerate(cols):
+            if c == n_clean:
+                return df.columns[i]
+    return None
+
+
+# ── Upload file ───────────────────────────────────────────
+def process_upload(contents: bytes, filename: str) -> dict:
+    """
+    Reads uploaded file into DataFrame
+    Supports CSV, Excel, JSON
+    """
+    global current_df
+    name = filename.lower()
+
+    if name.endswith('.csv'):
+        current_df = pd.read_csv(io.BytesIO(contents))
+    elif name.endswith(('.xlsx', '.xls')):
+        current_df = pd.read_excel(io.BytesIO(contents))
+    elif name.endswith('.json'):
+        current_df = pd.read_json(io.BytesIO(contents))
+    else:
+        raise ValueError(
+            f"Unsupported file type: {filename}. "
+            "Use CSV, Excel or JSON."
+        )
+
+    current_df = current_df.fillna('')
+
+    print(f"[DataService] Loaded {len(current_df)} rows "
+          f"from {filename}")
+
+    return {
+        "message" : f"Uploaded {len(current_df)} rows",
+        "rows"    : len(current_df),
+        "columns" : list(current_df.columns),
+        "filename": filename,
+    }
+
+
+# ── Calculate metrics ─────────────────────────────────────
+def get_metrics() -> dict:
+    """
+    Calculates CSAT%, DSAT%, Neutral%
+    + team and region breakdown
+    """
+    global current_df
+
+    if current_df.empty:
+        return {"message": "No data uploaded yet.", "total": 0}
+
+    df    = current_df
+    total = len(df)
+
+    # Find relevant columns
+    csat_col   = find_col(df, 'ISHAPPY', 'CSAT')
+    dsat_col   = find_col(df, 'ISSAD',   'DSAT')
+    pass_col   = find_col(df, 'ISPASSIVE')
+    sent_col   = find_col(df, 'Predicted_Sentiment', 'Sentiment')
+    team_col   = find_col(df, 'TEAM',   'Department')
+    region_col = find_col(df, 'REGION', 'Industry')
+
+    # Count
+    csat_n = sum(1 for v in df[csat_col] if is_true(v)) \
+             if csat_col else 0
+    dsat_n = sum(1 for v in df[dsat_col] if is_true(v)) \
+             if dsat_col else 0
+    neu_n  = sum(1 for v in df[pass_col] if is_true(v)) \
+             if pass_col else 0
+
+    if sent_col:
+        pos_n = sum(1 for v in df[sent_col]
+                    if str(v).strip().lower() == 'positive')
+        neg_n = sum(1 for v in df[sent_col]
+                    if str(v).strip().lower() == 'negative')
+        neu_n = sum(1 for v in df[sent_col]
+                    if str(v).strip().lower() == 'neutral')
+    else:
+        pos_n, neg_n = csat_n, dsat_n
+
+    pct = lambda n: round(n / total * 100, 1) if total else 0
+
+    result = {
+        "total"      : total,
+        "csat_pct"   : pct(csat_n),
+        "dsat_pct"   : pct(dsat_n),
+        "neutral_pct": pct(neu_n),
+        "csat_n"     : csat_n,
+        "dsat_n"     : dsat_n,
+        "neutral_n"  : neu_n,
+        "pos_n"      : pos_n,
+        "neg_n"      : neg_n,
+    }
+
+    # Team breakdown
+    if team_col and csat_col:
+        stats = {}
+        for _, row in df.iterrows():
+            k = str(row[team_col]).strip()
+            if not k or k == 'nan':
+                continue
+            if k not in stats:
+                stats[k] = {'csat':0, 'dsat':0, 'total':0}
+            stats[k]['total'] += 1
+            if is_true(row[csat_col]):
+                stats[k]['csat'] += 1
+            if dsat_col and is_true(row[dsat_col]):
+                stats[k]['dsat'] += 1
+
+        result['team_breakdown'] = {
+            t: {
+                'csat_pct': round(
+                    v['csat']/v['total']*100, 1
+                ) if v['total'] else 0,
+                'dsat_pct': round(
+                    v['dsat']/v['total']*100, 1
+                ) if v['total'] else 0,
+                'total': v['total'],
+            }
+            for t, v in stats.items()
+        }
+
+    # Region breakdown
+    if region_col and csat_col:
+        stats = {}
+        for _, row in df.iterrows():
+            k = str(row[region_col]).strip()
+            if not k or k == 'nan':
+                continue
+            if k not in stats:
+                stats[k] = {'csat':0, 'dsat':0, 'total':0}
+            stats[k]['total'] += 1
+            if is_true(row[csat_col]):
+                stats[k]['csat'] += 1
+            if dsat_col and is_true(row[dsat_col]):
+                stats[k]['dsat'] += 1
+
+        result['region_breakdown'] = {
+            r: {
+                'csat_pct': round(
+                    v['csat']/v['total']*100, 1
+                ) if v['total'] else 0,
+                'dsat_pct': round(
+                    v['dsat']/v['total']*100, 1
+                ) if v['total'] else 0,
+                'total': v['total'],
+            }
+            for r, v in stats.items()
+        }
+
+    return result
+
+
+# ── Get data rows ─────────────────────────────────────────
+def get_data(limit: int = 200) -> dict:
+    """Returns rows from uploaded data"""
+    global current_df
+
+    if current_df.empty:
+        return {"rows": [], "total": 0}
+
+    return {
+        "rows"   : current_df.head(limit).to_dict(
+            orient='records'
+        ),
+        "total"  : len(current_df),
+        "columns": list(current_df.columns),
+    }
+
+
+# ── Get status ────────────────────────────────────────────
+def get_status() -> dict:
+    return {
+        "data_loaded": not current_df.empty,
+        "data_rows"  : len(current_df),
+        "columns"    : list(current_df.columns)
+                       if not current_df.empty else [],
+    }
+
+
+
+
+
+
+
+
+
+    
+  # ============================================================
+# SENTIMENTIQ — Main Backend
+# Connects all microservices
+# Config driven — reads from config.json
+# ============================================================
+
+import json
+import os
+
+# ── Load config first ─────────────────────────────────────
+with open('config.json', 'r') as f:
+    CONFIG = json.load(f)
+
+print("\n" + "="*60)
+print(f"   {CONFIG['app']['name']} BACKEND")
+print(f"   {CONFIG['app']['company']} · v{CONFIG['app']['version']}")
+print("="*60 + "\n")
+
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+# ── Import microservices ──────────────────────────────────
+from services.auth_service import (
+    authenticate_user,
+    create_token,
+    get_all_users,
+)
+from services.data_service import (
+    process_upload,
+    get_metrics,
+    get_data,
+    get_status,
+)
+
+# ── Create FastAPI app ────────────────────────────────────
+app = FastAPI(
+    title=CONFIG['app']['name'],
+    version=CONFIG['app']['version'],
+)
+
+# ── CORS from config ──────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CONFIG['cors']['allow_origins'],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+# AUTH ROUTES — /auth/...
+# ============================================================
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    """
+    Login endpoint
+    1. Takes username + password from frontend
+    2. Calls auth_service.authenticate_user()
+    3. auth_service reads credentials from config.json
+    4. Returns user info + token if valid
+    5. Returns 401 error if invalid
+    """
+    user = authenticate_user(req.username, req.password)
+
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    token = create_token(user)
+
+    return {
+        "success" : True,
+        "token"   : token,
+        "user"    : {
+            "username": user['username'],
+            "name"    : user['name'],
+            "role"    : user['role'],
+        },
+        "message" : f"Welcome {user['name']}!"
+    }
+
+
+@app.get("/auth/users")
+def list_users():
+    """
+    Returns all users (without passwords)
+    Admin only — for demo purposes
+    """
+    return {"users": get_all_users()}
+
+
+# ============================================================
+# DATA ROUTES — /data/...
+# ============================================================
+
+@app.post("/data/upload")
+async def upload(file: UploadFile = File(...)):
+    """
+    Upload CSV/Excel/JSON file
+    Calls data_service.process_upload()
+    """
+    try:
+        contents = await file.read()
+        result   = process_upload(contents, file.filename)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/data/metrics")
+def metrics():
+    """
+    Get CSAT%, DSAT%, Neutral%
+    Calls data_service.get_metrics()
+    """
+    return get_metrics()
+
+
+@app.get("/data/rows")
+def rows(limit: int = 200):
+    """
+    Get data rows
+    Calls data_service.get_data()
+    """
+    return get_data(limit)
+
+
+@app.get("/data/status")
+def data_status():
+    """
+    Check if data is loaded
+    """
+    return get_status()
+
+
+# ============================================================
+# HEALTH — /health
+# ============================================================
+
+@app.get("/health")
+def health():
+    """Overall system health"""
+    data_st = get_status()
+    return {
+        "status"     : "running",
+        "app"        : CONFIG['app']['name'],
+        "version"    : CONFIG['app']['version'],
+        "data_loaded": data_st['data_loaded'],
+        "data_rows"  : data_st['data_rows'],
+    }
+
+
+@app.get("/")
+def root():
+    return {
+        "message": f"{CONFIG['app']['name']} API is running!",
+        "version": CONFIG['app']['version'],
+        "docs"   : "http://localhost:8000/docs",
+    }
+
+
+# ============================================================
+# RUN SERVER — from config
+# ============================================================
+if __name__ == "__main__":
+    import uvicorn
+
+    host   = CONFIG['server']['host']
+    port   = CONFIG['server']['port']
+    reload = CONFIG['server']['reload']
+
+    print(f"Starting server at http://localhost:{port}")
+    print(f"API docs at http://localhost:{port}/docs\n")
+
+    uvicorn.run(
+        "backend:app",
+        host=host,
+        port=port,
+        reload=reload,
+    )
+
+
+
+
+
+
+
+
+    import { useState } from 'react'
 
 const C = {
-  bg0:'#07090f', bg2:'#161b22', panel:'#13181f', border:'#21262d',
-  cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
-  amber:'#d29922', violet:'#bc8cff',
+  bg0:'#07090f', bg1:'#0d1117', bg2:'#161b22', panel:'#13181f',
+  border:'#21262d', cyan:'#58a6ff', red:'#f85149', violet:'#bc8cff',
   text:'#e6edf3', sub:'#8b949e', dim:'#484f58',
 }
 
-const BADGE_MAP = {
-  Positive:  {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
-  Negative:  {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
-  Neutral:   {bg:'#d2992218',c:'#d29922',bd:'#d2992240'},
-  Promoter:  {bg:'#58a6ff18',c:'#58a6ff',bd:'#58a6ff40'},
-  Detractor: {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
-  Passive:   {bg:'#bc8cff18',c:'#bc8cff',bd:'#bc8cff40'},
-  Yes:       {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
-  No:        {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
-  P1:        {bg:'#f8514918',c:'#f85149',bd:'#f8514940'},
-  P2:        {bg:'#d2992218',c:'#d29922',bd:'#d2992240'},
-  P3:        {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
-  '1':       {bg:'#3fb95018',c:'#3fb950',bd:'#3fb95040'},
-  '0':       {bg:'#48484818',c:'#484f58',bd:'#48484840'},
-}
+const API = 'http://localhost:8000'
 
-const BADGE_COLS = new Set([
-  'Predicted_Sentiment','NPS_Category','SLA_Breached',
-  'Priority','CSAT','DSAT','Status','status',
-  'ISHAPPY','ISSAD','ISPASSIVE',
-])
-const EMAIL_COLS = new Set([
-  'Employee_Email','Client_Email','email','Email',
-  'USER EMAIL','user email','ASSIGNED TOEMAIL',
-])
+export default function Login({ onLogin }) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPwd,  setShowPwd]  = useState(false)
+  const [error,    setError]    = useState('')
+  const [loading,  setLoading]  = useState(false)
 
-function Badge({ v }) {
-  const s = BADGE_MAP[String(v)]
-  if (!s) return <span style={{ color:C.text, fontSize:11 }}>{v}</span>
-  return (
-    <span style={{
-      background:s.bg, color:s.c,
-      border:`1px solid ${s.bd}`,
-      borderRadius:5, padding:'2px 9px',
-      fontSize:11, fontWeight:700, whiteSpace:'nowrap',
-    }}>{v}</span>
-  )
-}
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setError('')
 
-function EmptyTable() {
-  const cols = ['A','B','C','D','E','F','G','H','I','J']
-  return (
-    <div style={{
-      background:C.panel, border:`1px solid ${C.border}`,
-      borderRadius:12, overflow:'hidden', position:'relative',
-      minHeight:300,
-    }}>
-      <div style={{ overflowX:'auto' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse' }}>
-          <thead>
-            <tr style={{ background:C.bg2 }}>
-              <th style={{
-                width:40, padding:'9px 8px',
-                borderBottom:`1px solid ${C.border}`,
-                borderRight:`1px solid ${C.border}`,
-                color:C.dim, fontSize:10,
-              }}>#</th>
-              {cols.map(c=>(
-                <th key={c} style={{
-                  padding:'9px 40px',
-                  borderBottom:`1px solid ${C.border}`,
-                  borderRight:`1px solid ${C.border}22`,
-                  color:C.dim, fontSize:11, fontWeight:700,
-                  textAlign:'center', minWidth:120,
-                }}>{c}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({length:12},(_,ri)=>(
-              <tr key={ri} style={{
-                borderBottom:`1px solid ${C.border}22`,
-                background:ri%2?'#ffffff03':'transparent',
-              }}>
-                <td style={{
-                  padding:'8px', textAlign:'center',
-                  color:C.dim, fontSize:10,
-                  borderRight:`1px solid ${C.border}`,
-                  background:'#161b2288',
-                }}>{ri+1}</td>
-                {cols.map(c=>(
-                  <td key={c} style={{
-                    padding:'8px 12px', minWidth:120,
-                    height:34, borderRight:`1px solid ${C.border}22`,
-                  }}/>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div style={{
-        position:'absolute', top:'50%', left:'50%',
-        transform:'translate(-50%,-50%)',
-        textAlign:'center', pointerEvents:'none',
-      }}>
-        <div style={{ fontSize:32, marginBottom:8 }}>📂</div>
-        <div style={{ fontSize:13, fontWeight:700, color:C.sub }}>
-          No data to display
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function PaginationBar({ page, totalPages, setPage, totalFiltered }) {
-  if (totalPages <= 1) return null
-  const start = (page-1)*PAGE_SIZE+1
-  const end   = Math.min(page*PAGE_SIZE, totalFiltered)
-
-  function pgBtn(label, onClick, disabled, active) {
-    return (
-      <button
-        key={label+String(active)}
-        onClick={onClick}
-        disabled={disabled}
-        style={{
-          background: active?C.cyan:disabled?'transparent':C.bg2,
-          border:`1px solid ${active?C.cyan:C.border}`,
-          color: active?'#000':disabled?C.dim:C.text,
-          borderRadius:7, padding:'5px 11px',
-          fontSize:11, fontWeight:700,
-          cursor:disabled?'not-allowed':'pointer',
-          fontFamily:'inherit', opacity:disabled?0.4:1, minWidth:34,
-        }}
-      >{label}</button>
-    )
-  }
-
-  const from = Math.max(1,page-2)
-  const to   = Math.min(totalPages,page+2)
-  const nums = []
-  for (let i=from;i<=to;i++) nums.push(i)
-
-  return (
-    <div style={{
-      background:C.panel, border:`1px solid ${C.border}`,
-      borderRadius:10, padding:'10px 16px',
-      display:'flex', alignItems:'center',
-      justifyContent:'space-between', flexWrap:'wrap', gap:10,
-    }}>
-      <div style={{ fontSize:11, color:C.sub }}>
-        Rows{' '}
-        <strong style={{color:C.cyan}}>{start.toLocaleString()}</strong>
-        {' – '}
-        <strong style={{color:C.cyan}}>{end.toLocaleString()}</strong>
-        {' of '}
-        <strong style={{color:C.text}}>{totalFiltered.toLocaleString()}</strong>
-        {' · Page '}
-        <strong style={{color:C.cyan}}>{page}</strong>
-        {' of '}
-        <strong style={{color:C.text}}>{totalPages}</strong>
-        <span style={{color:C.dim}}> · {PAGE_SIZE}/page</span>
-      </div>
-      <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-        {pgBtn('«',()=>setPage(1),page===1,false)}
-        {pgBtn('‹',()=>setPage(p=>p-1),page===1,false)}
-        {from>1 && <>
-          {pgBtn('1',()=>setPage(1),false,false)}
-          {from>2 &&
-            <span style={{color:C.dim,padding:'0 4px'}}>…</span>}
-        </>}
-        {nums.map(p=>pgBtn(String(p),()=>setPage(p),false,p===page))}
-        {to<totalPages && <>
-          {to<totalPages-1 &&
-            <span style={{color:C.dim,padding:'0 4px'}}>…</span>}
-          {pgBtn(String(totalPages),()=>setPage(totalPages),false,false)}
-        </>}
-        {pgBtn('›',()=>setPage(p=>p+1),page===totalPages,false)}
-        {pgBtn('»',()=>setPage(totalPages),page===totalPages,false)}
-      </div>
-    </div>
-  )
-}
-
-export default function DataTable({ rows, onNotify }) {
-
-  // ── ALL HOOKS FIRST — NEVER MOVE THESE ───────────────
-  const [search,    setSearch]    = useState('')
-  const [sortCol,   setSortCol]   = useState(null)
-  const [sortDir,   setSortDir]   = useState('asc')
-  const [colFilter, setColFilter] = useState({})
-  const [page,      setPage]      = useState(1)
-
-  const safeRows = rows || []
-
-  const cols = useMemo(()=>{
-    if (!safeRows.length) return []
-    return Object.keys(safeRows[0])
-  },[safeRows])
-
-  const uniqueValues = useMemo(()=>{
-    if (!safeRows.length) return {}
-    const map = {}
-    cols.forEach(col=>{
-      const vals = [...new Set(safeRows.map(r=>String(r[col]??'')))]
-      if (vals.length<=30) map[col]=vals
-    })
-    return map
-  },[safeRows,cols])
-
-  const filtered = useMemo(()=>{
-    if (!safeRows.length) return []
-    let data = safeRows
-
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      data = data.filter(row=>
-        Object.values(row).some(v=>
-          String(v).toLowerCase().includes(q)
-        )
-      )
+    // Basic validation
+    if (!username.trim()) {
+      setError('Please enter your username')
+      return
+    }
+    if (!password.trim()) {
+      setError('Please enter your password')
+      return
     }
 
-    Object.entries(colFilter).forEach(([col,val])=>{
-      if (val && val!=='All') {
-        data = data.filter(row=>
-          String(row[col]??'').toLowerCase()===val.toLowerCase()
-        )
+    setLoading(true)
+
+    try {
+      // ── Call backend /auth/login API ─────────────────
+      const response = await fetch(`${API}/auth/login`, {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify({
+          username: username.trim(),
+          password: password.trim(),
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        // Backend returned 401 — wrong credentials
+        setError(data.detail || 'Invalid username or password')
+        setLoading(false)
+        return
       }
-    })
 
-    return data
-  },[safeRows,search,colFilter])
+      // ── Login success ────────────────────────────────
+      // Save token for future API calls
+      localStorage.setItem('token', data.token)
+      localStorage.setItem('user', JSON.stringify(data.user))
 
-  const sorted = useMemo(()=>{
-    if (!filtered.length) return []
-    if (!sortCol) return filtered
-    return [...filtered].sort((a,b)=>{
-      const av = String(a[sortCol]??'')
-      const bv = String(b[sortCol]??'')
-      const nA = parseFloat(av), nB = parseFloat(bv)
-      const cmp = !isNaN(nA)&&!isNaN(nB)
-        ? nA-nB : av.localeCompare(bv)
-      return sortDir==='asc'?cmp:-cmp
-    })
-  },[filtered,sortCol,sortDir])
+      // Pass user to App.jsx
+      onLogin(data.user)
 
-  const totalPages = useMemo(()=>
-    Math.max(1,Math.ceil(sorted.length/PAGE_SIZE)),
-  [sorted])
-
-  const curPage = useMemo(()=>
-    Math.min(page,totalPages),
-  [page,totalPages])
-
-  const sliced = useMemo(()=>
-    sorted.slice((curPage-1)*PAGE_SIZE, curPage*PAGE_SIZE),
-  [sorted,curPage])
-
-  // ── ALL HOOKS DONE — safe to return early now ─────────
-  if (!safeRows.length) return <EmptyTable/>
-
-  const isFiltered = search.trim() ||
-    Object.values(colFilter).some(v=>v&&v!=='All')
-  const isSorted   = sortCol !== null
-
-  function doSort(col) {
-    if (sortCol===col) setSortDir(d=>d==='asc'?'desc':'asc')
-    else { setSortCol(col); setSortDir('asc') }
-    setPage(1)
-  }
-  function doFilter(col,val) {
-    setColFilter(prev=>({...prev,[col]:val})); setPage(1)
-  }
-  function doSearch(val) { setSearch(val); setPage(1) }
-  function clearAll() {
-    setSearch(''); setColFilter({})
-    setSortCol(null); setSortDir('asc'); setPage(1)
+    } catch (err) {
+      // Backend not running
+      setError(
+        'Cannot connect to server. ' +
+        'Make sure backend is running on port 8000.'
+      )
+      setLoading(false)
+    }
   }
 
-  // ── EXPORT — exports filtered + sorted data ───────────
-  function doExport() {
-    const dataToExport = sorted   // filtered + sorted!
-    if (!dataToExport.length) return
-
-    const headers = Object.keys(dataToExport[0]).join(',')
-    const body    = dataToExport.map(r=>
-      Object.values(r)
-        .map(v=>`"${String(v??'').replace(/"/g,'""')}"`)
-        .join(',')
-    ).join('\n')
-
-    const blob = new Blob(
-      [headers+'\n'+body],
-      { type:'text/csv' }
-    )
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `sentimentiq_export_${Date.now()}.csv`
-    a.click()
-
-    const msg = isFiltered || isSorted
-      ? `Exported ${dataToExport.length.toLocaleString()} rows (filtered/sorted)`
-      : `Exported all ${dataToExport.length.toLocaleString()} rows`
-
-    if (onNotify) onNotify(msg, C.green)
+  const inp = {
+    width:'100%', background:C.bg2,
+    border:`1px solid ${C.border}`,
+    borderRadius:9, padding:'12px 14px',
+    color:C.text, fontSize:13,
+    fontFamily:'inherit', outline:'none',
+    boxSizing:'border-box', transition:'border-color .2s',
   }
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+    <div style={{
+      minHeight:'100vh', background:C.bg0,
+      display:'flex', alignItems:'center',
+      justifyContent:'center', flexDirection:'column',
+      fontFamily:"'IBM Plex Mono','Courier New',monospace",
+      padding:20,
+    }}>
 
-      {/* ── TOOLBAR ───────────────────────────────────── */}
+      {/* Background grid */}
       <div style={{
+        position:'fixed', inset:0, zIndex:0, pointerEvents:'none',
+        backgroundImage:`
+          linear-gradient(${C.border}44 1px, transparent 1px),
+          linear-gradient(90deg, ${C.border}44 1px, transparent 1px)
+        `,
+        backgroundSize:'40px 40px',
+      }}/>
+      <div style={{
+        position:'fixed', top:'30%', left:'50%',
+        transform:'translate(-50%,-50%)',
+        width:500, height:300,
+        background:`radial-gradient(ellipse,${C.cyan}14 0%,transparent 70%)`,
+        pointerEvents:'none', zIndex:0,
+      }}/>
+
+      {/* Login card */}
+      <div style={{
+        position:'relative', zIndex:1,
         background:C.panel, border:`1px solid ${C.border}`,
-        borderRadius:10, padding:'12px 14px',
-        display:'flex', gap:10, alignItems:'center', flexWrap:'wrap',
+        borderRadius:18, padding:'44px 44px 36px',
+        width:'100%', maxWidth:420,
+        boxShadow:`0 0 60px ${C.cyan}12`,
       }}>
 
-        {/* Search box */}
-        <div style={{ position:'relative', flex:1, minWidth:200 }}>
-          <span style={{
-            position:'absolute', left:11, top:'50%',
-            transform:'translateY(-50%)',
-            color:C.dim, fontSize:13, pointerEvents:'none',
-          }}>🔍</span>
-          <input
-            value={search}
-            onChange={e=>doSearch(e.target.value)}
-            placeholder="Search across all columns…"
-            style={{
-              width:'100%', background:C.bg2,
-              border:`1px solid ${C.border}`,
-              borderRadius:8, padding:'8px 12px 8px 32px',
-              color:C.text, fontSize:12,
-              fontFamily:'inherit', outline:'none',
-              boxSizing:'border-box',
-            }}
-          />
-        </div>
-
-        {/* Row count */}
-        <div style={{
-          fontSize:11, color:C.sub, whiteSpace:'nowrap',
-        }}>
-          <strong style={{color:C.cyan}}>
-            {sorted.length.toLocaleString()}
-          </strong>
-          {' of '}
-          <strong style={{color:C.text}}>
-            {safeRows.length.toLocaleString()}
-          </strong>
-          {' rows'}
-          {(isFiltered||isSorted) && (
-            <span style={{
-              color:C.amber, marginLeft:6, fontSize:10,
-            }}>● filtered</span>
-          )}
-        </div>
-
-        {/* Clear button */}
-        {(isFiltered||isSorted) && (
-          <button onClick={clearAll} style={{
-            background:C.red+'18', border:`1px solid ${C.red}40`,
-            color:C.red, borderRadius:7, padding:'7px 13px',
-            fontSize:11, fontWeight:700,
-            cursor:'pointer', fontFamily:'inherit',
-          }}>✕ Clear</button>
-        )}
-
-        {/* EXPORT BUTTON — always visible */}
-        <button
-          onClick={doExport}
-          style={{
-            background:C.green+'18',
-            border:`1px solid ${C.green}50`,
-            color:C.green, borderRadius:7,
-            padding:'7px 16px',
-            fontSize:11, fontWeight:700,
-            cursor:'pointer', fontFamily:'inherit',
-            whiteSpace:'nowrap',
-          }}
-        >
-          ⬇ Export CSV
-          {(isFiltered||isSorted)
-            ? ` (${sorted.length.toLocaleString()} filtered)`
-            : ` (${safeRows.length.toLocaleString()} rows)`}
-        </button>
-      </div>
-
-      {/* Pagination top */}
-      <PaginationBar
-        page={curPage} totalPages={totalPages}
-        setPage={setPage} totalFiltered={sorted.length}
-      />
-
-      {/* Table */}
-      <div style={{
-        background:C.panel, border:`1px solid ${C.border}`,
-        borderRadius:12, overflow:'hidden',
-      }}>
-        <div style={{
-          overflowX:'auto', overflowY:'auto', maxHeight:'52vh',
-        }}>
-          <table style={{
-            width:'100%', borderCollapse:'collapse', fontSize:12,
+        {/* Logo */}
+        <div style={{ textAlign:'center', marginBottom:36 }}>
+          <div style={{
+            width:54, height:54, borderRadius:14,
+            background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
+            display:'flex', alignItems:'center',
+            justifyContent:'center', fontSize:26,
+            margin:'0 auto 16px',
+            boxShadow:`0 0 30px ${C.cyan}30`,
+          }}>⚡</div>
+          <div style={{
+            fontSize:24, fontWeight:900,
+            color:C.cyan, letterSpacing:3,
+          }}>SENTIMENTIQ</div>
+          <div style={{
+            fontSize:11, color:C.dim,
+            marginTop:5, letterSpacing:1.5,
           }}>
-            <thead>
-              <tr style={{ background:C.bg0 }}>
-                {cols.map(col=>(
-                  <th
-                    key={col}
-                    onClick={()=>doSort(col)}
-                    style={{
-                      padding:'10px 14px', textAlign:'left',
-                      color:C.cyan, fontWeight:700, fontSize:10,
-                      letterSpacing:1.4, textTransform:'uppercase',
-                      whiteSpace:'nowrap',
-                      borderBottom:`1px solid ${C.border}`,
-                      cursor:'pointer', userSelect:'none',
-                      position:'sticky', top:0, background:C.bg0,
-                    }}
-                  >
-                    {col.replace(/_/g,' ')}
-                    <span style={{
-                      marginLeft:4,
-                      color:sortCol===col?C.cyan:C.dim,
-                    }}>
-                      {sortCol===col
-                        ?(sortDir==='asc'?'↑':'↓'):'⇅'}
-                    </span>
-                  </th>
-                ))}
-              </tr>
-
-              {/* Filter dropdowns */}
-              <tr style={{ background:C.bg0 }}>
-                {cols.map(col=>{
-                  const opts = uniqueValues[col]
-                  return (
-                    <th key={col} style={{
-                      padding:'4px 8px',
-                      borderBottom:`2px solid ${C.cyan}33`,
-                      position:'sticky', top:37, background:C.bg0,
-                    }}>
-                      {opts ? (
-                        <select
-                          value={colFilter[col]||'All'}
-                          onChange={e=>doFilter(col,e.target.value)}
-                          style={{
-                            background:C.panel,
-                            border:`1px solid ${
-                              colFilter[col]&&colFilter[col]!=='All'
-                                ?C.cyan:C.border}`,
-                            borderRadius:5,
-                            color:colFilter[col]&&colFilter[col]!=='All'
-                              ?C.cyan:C.dim,
-                            fontSize:10, padding:'3px 6px',
-                            fontFamily:'inherit', cursor:'pointer',
-                            width:'100%', outline:'none',
-                          }}
-                        >
-                          <option value="All">All</option>
-                          {opts.sort().map(v=>(
-                            <option key={v} value={v}>
-                              {v||'(empty)'}
-                            </option>
-                          ))}
-                        </select>
-                      ) : <div style={{height:24}}/>}
-                    </th>
-                  )
-                })}
-              </tr>
-            </thead>
-
-            <tbody>
-              {sliced.map((row,ri)=>(
-                <tr
-                  key={ri}
-                  style={{
-                    borderBottom:`1px solid ${C.border}22`,
-                    background:ri%2?'#ffffff04':'transparent',
-                    transition:'background .1s',
-                  }}
-                  onMouseEnter={e=>
-                    (e.currentTarget.style.background=C.cyan+'0a')}
-                  onMouseLeave={e=>
-                    (e.currentTarget.style.background=
-                      ri%2?'#ffffff04':'transparent')}
-                >
-                  {cols.map(col=>(
-                    <td key={col} style={{
-                      padding:'9px 14px', whiteSpace:'nowrap',
-                    }}>
-                      {BADGE_COLS.has(col)
-                        ?<Badge v={String(row[col]??'')}/>
-                        :EMAIL_COLS.has(col)
-                        ?<span style={{color:C.violet,fontSize:11}}>
-                          {row[col]}
-                        </span>
-                        :<span style={{color:C.text}}>
-                          {String(row[col]??'').length>48
-                            ?String(row[col]).slice(0,48)+'…'
-                            :row[col]}
-                        </span>}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-
-              {!sliced.length && (
-                <tr>
-                  <td colSpan={cols.length} style={{
-                    padding:40, textAlign:'center', color:C.dim,
-                  }}>
-                    No records match your filters
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+            NTT DATA · AI ANALYTICS PLATFORM
+          </div>
+          <div style={{
+            marginTop:8, fontSize:10,
+            color:C.dim, letterSpacing:1,
+          }}>
+            v1.0.0 · Internal Use Only
+          </div>
         </div>
+
+        <form
+          onSubmit={handleSubmit}
+          style={{ display:'flex', flexDirection:'column', gap:18 }}
+        >
+
+          {/* Username */}
+          <div>
+            <label style={{
+              display:'block', fontSize:11, color:C.sub,
+              letterSpacing:1.5, fontWeight:700,
+              marginBottom:8, textTransform:'uppercase',
+            }}>Username</label>
+            <input
+              type="text"
+              value={username}
+              onChange={e=>setUsername(e.target.value)}
+              placeholder="Enter your username"
+              autoComplete="username"
+              spellCheck={false}
+              style={inp}
+              onFocus={e=>(e.target.style.borderColor=C.cyan)}
+              onBlur={e =>(e.target.style.borderColor=C.border)}
+            />
+          </div>
+
+          {/* Password */}
+          <div>
+            <label style={{
+              display:'block', fontSize:11, color:C.sub,
+              letterSpacing:1.5, fontWeight:700,
+              marginBottom:8, textTransform:'uppercase',
+            }}>Password</label>
+            <div style={{ position:'relative' }}>
+              <input
+                type={showPwd?'text':'password'}
+                value={password}
+                onChange={e=>setPassword(e.target.value)}
+                placeholder="Enter your password"
+                autoComplete="current-password"
+                style={{ ...inp, paddingRight:44 }}
+                onFocus={e=>(e.target.style.borderColor=C.cyan)}
+                onBlur={e =>(e.target.style.borderColor=C.border)}
+              />
+              <button
+                type="button"
+                onClick={()=>setShowPwd(v=>!v)}
+                style={{
+                  position:'absolute', right:12, top:'50%',
+                  transform:'translateY(-50%)',
+                  background:'transparent', border:'none',
+                  color:C.dim, cursor:'pointer', fontSize:16, padding:4,
+                }}
+              >{showPwd?'🙈':'👁️'}</button>
+            </div>
+          </div>
+
+          {/* Error message from backend */}
+          {error && (
+            <div style={{
+              background:C.red+'15',
+              border:`1px solid ${C.red}40`,
+              borderRadius:8, padding:'10px 13px',
+              fontSize:12, color:C.red, fontWeight:600,
+            }}>⚠ {error}</div>
+          )}
+
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              background: loading
+                ? C.dim
+                : `linear-gradient(135deg,${C.cyan},${C.violet})`,
+              border:'none', borderRadius:10, padding:14,
+              width:'100%',
+              color: loading ? C.sub : '#000',
+              fontSize:14, fontWeight:900,
+              cursor: loading?'not-allowed':'pointer',
+              fontFamily:'inherit', letterSpacing:1, marginTop:4,
+            }}
+          >
+            {loading ? 'Signing in…' : 'SIGN IN →'}
+          </button>
+        </form>
       </div>
 
-      {/* Pagination bottom */}
-      <PaginationBar
-        page={curPage} totalPages={totalPages}
-        setPage={setPage} totalFiltered={sorted.length}
-      />
+      {/* Footer */}
+      <div style={{
+        position:'relative', zIndex:1,
+        marginTop:20, fontSize:10,
+        color:C.dim, textAlign:'center',
+      }}>
+        NTT Data Internal Platform · Authorized Access Only
+      </div>
 
       <style>{`
-        select option{background:${C.bg2};color:${C.text}}
-        ::-webkit-scrollbar{width:5px;height:5px}
-        ::-webkit-scrollbar-track{background:#07090f}
-        ::-webkit-scrollbar-thumb{
-          background:${C.border};border-radius:3px}
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:${C.bg0}}
+        input::placeholder{color:${C.dim}}
+        button:active{transform:scale(.97)}
       `}</style>
     </div>
   )
