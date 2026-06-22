@@ -1,267 +1,327 @@
 # ============================================================
-# SENTIMENTIQ BACKEND — SQLite Version
+# DATA MICROSERVICE — Fixed Version
 # ============================================================
 
-import json
-import os
-import sqlite3
-
-with open('config.json', 'r') as f:
-    CONFIG = json.load(f)
-
-print("\n" + "="*60)
-print(f"   {CONFIG['app']['name']} BACKEND")
-print(f"   {CONFIG['app']['company']} "
-      f"· v{CONFIG['app']['version']}")
-print("="*60 + "\n")
-
-from fastapi import (
-    FastAPI, UploadFile,
-    File, HTTPException
-)
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
+import io
+import uuid
+import pandas as pd
 
 from services.db_service import (
-    init_database,
-    test_connection,
-    get_latest_upload_id,
+    save_upload,
     get_upload_rows,
     get_all_uploads,
-)
-from services.auth_service import (
-    authenticate_user,
-    create_token,
-    get_users_list,
-    register_user,
-)
-from services.data_service import (
-    process_upload,
-    get_metrics,
-    get_status,
-    get_uploads_history,
+    test_connection,
 )
 
-app = FastAPI(
-    title   = CONFIG['app']['name'],
-    version = CONFIG['app']['version'],
-)
+print("[DataService] Data microservice loaded")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins = CONFIG['cors']['allow_origins'],
-    allow_methods = ["*"],
-    allow_headers = ["*"],
-)
+current_df     = pd.DataFrame()
+current_upload = {
+    'upload_id'  : None,
+    'filename'   : None,
+    'uploaded_by': None,
+    'rows'       : 0,
+}
 
 
-@app.on_event("startup")
-async def startup():
-    print("[Backend] Starting up...")
-    init_database()
-    test_connection()
-    print("[Backend] Ready!\n")
+# ── KEY FIX — handles "1.0" "1" 1 True ───────────────────
+def is_true(val) -> bool:
+    try:
+        if pd.isna(val):
+            return False
+    except:
+        pass
+    if val == 1 or val == True:
+        return True
+    s = str(val).strip().lower()
+    # handles "1", "1.0", "true", "yes"
+    return s in ['1', '1.0', 'true', 'yes']
 
 
-# ── Auth ──────────────────────────────────────────────────
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-class RegisterRequest(BaseModel):
-    username: str
-    password: str
-    name    : str
-    role    : str = 'Viewer'
-
-
-@app.post("/auth/login")
-def login(req: LoginRequest):
-    user = authenticate_user(
-        req.username, req.password)
-
-    if not user:
-        raise HTTPException(
-            status_code = 401,
-            detail = "Invalid username or password"
-        )
-
-    token = create_token(user)
-    return {
-        "success": True,
-        "token"  : token,
-        "user"   : {
-            "username": user['username'],
-            "name"    : user['name'],
-            "role"    : user['role'],
-        },
-        "message": f"Welcome {user['name']}!"
-    }
+def find_col(df, *names):
+    cols = [
+        c.strip().lower().replace(' ', '')
+        for c in df.columns
+    ]
+    for n in names:
+        n_clean = n.lower().replace(' ', '')
+        for i, c in enumerate(cols):
+            if c == n_clean:
+                return df.columns[i]
+    return None
 
 
-@app.post("/auth/register")
-def register(req: RegisterRequest):
-    success = register_user(
-        req.username, req.password,
-        req.name, req.role
+def process_upload(contents: bytes,
+                   filename: str,
+                   uploaded_by: str = 'unknown'):
+    global current_df, current_upload
+
+    name = filename.lower()
+
+    if name.endswith('.csv'):
+        current_df = pd.read_csv(
+            io.BytesIO(contents))
+    elif name.endswith(('.xlsx', '.xls')):
+        current_df = pd.read_excel(
+            io.BytesIO(contents))
+    elif name.endswith('.json'):
+        current_df = pd.read_json(
+            io.BytesIO(contents))
+    else:
+        raise ValueError(
+            f"Unsupported: {filename}")
+
+    current_df = current_df.fillna('')
+
+    # Save copy for metrics BEFORE
+    # converting to string
+    metrics_df = current_df.copy()
+
+    # Convert to string for DB storage
+    str_df = current_df.copy()
+    for col in str_df.columns:
+        str_df[col] = str_df[col].astype(str)
+
+    rows      = str_df.to_dict(orient='records')
+    upload_id = f"upload_{uuid.uuid4().hex[:8]}"
+
+    # Save string version to DB
+    save_upload(
+        rows        = rows,
+        filename    = filename,
+        uploaded_by = uploaded_by,
+        upload_id   = upload_id,
     )
-    if not success:
-        raise HTTPException(
-            400, "User already exists!")
+
+    # Keep ORIGINAL df in memory for metrics!
+    current_df = metrics_df
+
+    current_upload = {
+        'upload_id'  : upload_id,
+        'filename'   : filename,
+        'uploaded_by': uploaded_by,
+        'rows'       : len(rows),
+    }
+
+    print(f"[DataService] {len(rows)} rows "
+          f"saved to sentimentiq.db!")
+
     return {
-        "success": True,
-        "message": f"User {req.username} created!"
+        "message"  : f"Uploaded {len(rows)} rows",
+        "rows"     : len(rows),
+        "columns"  : list(current_df.columns),
+        "filename" : filename,
+        "upload_id": upload_id,
     }
 
 
-@app.get("/auth/users")
-def list_users():
-    return {"users": get_users_list()}
+def get_metrics() -> dict:
+    global current_df
 
-
-# ── Data ──────────────────────────────────────────────────
-@app.post("/data/upload")
-async def upload(
-    file    : UploadFile = File(...),
-    username: str = "unknown"
-):
     try:
-        contents = await file.read()
-        result   = process_upload(
-            contents    = contents,
-            filename    = file.filename,
-            uploaded_by = username,
-        )
+        if current_df.empty:
+            return {
+                "message": "No data uploaded yet.",
+                "total"  : 0
+            }
+
+        df    = current_df.copy()
+        total = len(df)
+
+        csat_col   = find_col(df,'ISHAPPY','CSAT')
+        dsat_col   = find_col(df,'ISSAD','DSAT')
+        pass_col   = find_col(df,'ISPASSIVE')
+        sent_col   = find_col(df,
+                      'Predicted_Sentiment',
+                      'Sentiment')
+        team_col   = find_col(df,'TEAM','Department')
+        region_col = find_col(df,'REGION','Industry')
+
+        print(f"[DataService] Columns found:")
+        print(f"  CSAT col: {csat_col}")
+        print(f"  DSAT col: {dsat_col}")
+        if csat_col:
+            sample = df[csat_col].head(3).tolist()
+            print(f"  Sample values: {sample}")
+            print(f"  Types: {[type(v) for v in sample]}")
+
+        csat_n = sum(
+            1 for v in df[csat_col]
+            if is_true(v)
+        ) if csat_col else 0
+
+        dsat_n = sum(
+            1 for v in df[dsat_col]
+            if is_true(v)
+        ) if dsat_col else 0
+
+        neu_n = sum(
+            1 for v in df[pass_col]
+            if is_true(v)
+        ) if pass_col else 0
+
+        print(f"[DataService] csat_n={csat_n} "
+              f"dsat_n={dsat_n} total={total}")
+
+        if sent_col:
+            pos_n = sum(
+                1 for v in df[sent_col]
+                if str(v).strip().lower()=='positive'
+            )
+            neg_n = sum(
+                1 for v in df[sent_col]
+                if str(v).strip().lower()=='negative'
+            )
+            neu_n = sum(
+                1 for v in df[sent_col]
+                if str(v).strip().lower()=='neutral'
+            )
+        else:
+            pos_n = csat_n
+            neg_n = dsat_n
+
+        pct = lambda n: round(
+            n/total*100, 1) if total else 0
+
+        result = {
+            "total"      : total,
+            "csat_pct"   : pct(csat_n),
+            "dsat_pct"   : pct(dsat_n),
+            "neutral_pct": pct(neu_n),
+            "csat_n"     : csat_n,
+            "dsat_n"     : dsat_n,
+            "neutral_n"  : neu_n,
+            "pos_n"      : pos_n,
+            "neg_n"      : neg_n,
+        }
+
+        # Team breakdown
+        if team_col and csat_col:
+            stats = {}
+            for _, row in df.iterrows():
+                k = str(row[team_col]).strip()
+                if not k or k == 'nan':
+                    continue
+                if k not in stats:
+                    stats[k] = {
+                        'csat':0,'dsat':0,'total':0
+                    }
+                stats[k]['total'] += 1
+                if is_true(row[csat_col]):
+                    stats[k]['csat'] += 1
+                if dsat_col and is_true(
+                    row[dsat_col]):
+                    stats[k]['dsat'] += 1
+
+            result['team_breakdown'] = {
+                t: {
+                    'csat_pct': round(
+                        v['csat']/v['total']*100,1
+                    ) if v['total'] else 0,
+                    'dsat_pct': round(
+                        v['dsat']/v['total']*100,1
+                    ) if v['total'] else 0,
+                    'total': v['total'],
+                }
+                for t, v in stats.items()
+            }
+
+        # Region breakdown
+        if region_col and csat_col:
+            stats = {}
+            for _, row in df.iterrows():
+                k = str(row[region_col]).strip()
+                if not k or k == 'nan':
+                    continue
+                if k not in stats:
+                    stats[k] = {
+                        'csat':0,'dsat':0,'total':0
+                    }
+                stats[k]['total'] += 1
+                if is_true(row[csat_col]):
+                    stats[k]['csat'] += 1
+                if dsat_col and is_true(
+                    row[dsat_col]):
+                    stats[k]['dsat'] += 1
+
+            result['region_breakdown'] = {
+                r: {
+                    'csat_pct': round(
+                        v['csat']/v['total']*100,1
+                    ) if v['total'] else 0,
+                    'dsat_pct': round(
+                        v['dsat']/v['total']*100,1
+                    ) if v['total'] else 0,
+                    'total': v['total'],
+                }
+                for r, v in stats.items()
+            }
+
         return result
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    except Exception as e:
-        raise HTTPException(500, str(e))
 
-
-@app.get("/data/metrics")
-def metrics():
-    try:
-        return get_metrics()
     except Exception as e:
-        print(f"[Backend] metrics error: {e}")
+        print(f"[DataService] metrics error: {e}")
+        import traceback
+        traceback.print_exc()
         return {"total": 0, "error": str(e)}
 
 
-@app.get("/data/rows")
-def rows(limit: int = 200,
-         upload_id: str = None):
+def get_data(limit: int = 5000,
+             upload_id: str = None) -> dict:
     """
-    Reads rows directly from SQLite database
-    Much more reliable!
+    Returns from memory (current_df)
+    ALL rows available!
+    Fast and no serialization issues!
     """
+    global current_df, current_upload
+
     try:
-        # Get upload_id to use
-        target_id = upload_id or \
-                    get_latest_upload_id()
+        # Use in-memory DataFrame!
+        # All rows available!
+        if not current_df.empty:
+            df_copy = current_df.copy()
 
-        if not target_id:
-            return {"rows": [], "total": 0}
-
-        # Read directly from SQLite file
-        db_path = os.path.join(
-            os.path.dirname(__file__),
-            CONFIG['database']['path']
-        )
-        conn   = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        # Get rows
-        cursor.execute("""
-            SELECT row_data
-            FROM   feedback_data
-            WHERE  upload_id = ?
-            LIMIT  ?
-        """, (target_id, limit))
-        results = cursor.fetchall()
-
-        # Get total count
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM   feedback_data
-            WHERE  upload_id = ?
-        """, (target_id,))
-        total = cursor.fetchone()[0]
-
-        conn.close()
-
-        # Parse JSON rows safely
-        parsed = []
-        for r in results:
-            try:
-                parsed.append(
-                    json.loads(r['row_data'])
+            # Convert safely to strings
+            for col in df_copy.columns:
+                df_copy[col] = (
+                    df_copy[col]
+                    .astype(str)
+                    .replace('nan', '')
+                    .replace('None', '')
                 )
-            except Exception as e:
-                print(f"Row parse error: {e}")
-                continue
 
-        print(f"[Backend] Returning "
-              f"{len(parsed)} rows from DB")
+            rows = df_copy.to_dict(
+                orient='records')
 
-        return {
-            "rows"     : parsed,
-            "total"    : total,
-            "upload_id": target_id,
-        }
+            print(f"[DataService] Returning "
+                  f"{len(rows)} rows from memory")
+
+            return {
+                "rows"     : rows,
+                "total"    : len(rows),
+                "upload_id": current_upload[
+                    'upload_id'],
+            }
+
+        return {"rows": [], "total": 0}
 
     except Exception as e:
-        print(f"[Backend] rows error: {e}")
+        print(f"[DataService] get_data error: {e}")
         import traceback
         traceback.print_exc()
         return {"rows": [], "total": 0}
 
 
-@app.get("/data/uploads")
-def uploads():
-    history = get_uploads_history()
+def get_uploads_history():
+    return get_all_uploads()
+
+
+def get_status() -> dict:
     return {
-        "uploads": history,
-        "total"  : len(history),
+        "data_loaded"   : not current_df.empty,
+        "data_rows"     : len(current_df),
+        "current_upload": current_upload,
+        "columns"       : list(current_df.columns)
+                          if not current_df.empty
+                          else [],
     }
-
-
-@app.get("/data/status")
-def data_status():
-    return get_status()
-
-
-# ── System ────────────────────────────────────────────────
-@app.get("/health")
-def health():
-    db_ok = test_connection()
-    data  = get_status()
-    return {
-        "status"    : "running",
-        "app"       : CONFIG['app']['name'],
-        "version"   : CONFIG['app']['version'],
-        "database"  : "SQLite sentimentiq.db",
-        "db_ok"     : db_ok,
-        "data_rows" : data['data_rows'],
-    }
-
-
-@app.get("/")
-def root():
-    return {
-        "message": f"{CONFIG['app']['name']} "
-                   f"API running!",
-        "docs"   : "http://localhost:8000/docs",
-    }
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "backend:app",
-        host   = CONFIG['server']['host'],
-        port   = CONFIG['server']['port'],
-        reload = CONFIG['server']['reload'],
-    )
