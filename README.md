@@ -1,820 +1,1209 @@
-import { useState, useRef, useMemo } from 'react'
-import DataTable from '../components/DataTable.jsx'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, Cell,
-} from 'recharts'
+{
+  "app": {
+    "name": "SentimentIQ",
+    "version": "1.0.0",
+    "company": "NTT Data"
+  },
 
-const API = 'http://localhost:8000'
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "reload": true
+  },
 
-const C = {
-  bg0:'#07090f', bg1:'#0d1117', bg2:'#161b22', panel:'#13181f',
-  border:'#21262d', cyan:'#58a6ff', green:'#3fb950', red:'#f85149',
-  amber:'#d29922', violet:'#bc8cff', sky:'#79c0ff',
-  text:'#e6edf3', sub:'#8b949e', dim:'#484f58',
-}
+  "cors": {
+    "allow_origins": [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://localhost:3000"
+    ]
+  },
 
-const TT = {
-  background:C.panel, border:`1px solid ${C.border}`,
-  borderRadius:8, fontSize:11, color:C.text,
-}
+  "auth": {
+    "secret_key": "sentimentiq_ntt_secret_2026",
+    "token_expire_minutes": 480
+  },
 
-function KPI({ label, value, sub, accent }) {
-  return (
-    <div style={{
-      background:C.panel, border:`1px solid ${accent}33`,
-      borderRadius:12, padding:'16px 20px',
-    }}>
-      <div style={{
-        fontSize:10, color:C.sub, letterSpacing:1.5,
-        textTransform:'uppercase', marginBottom:6,
-        fontFamily:'monospace',
-      }}>{label}</div>
-      <div style={{
-        fontSize:28, fontWeight:900, color:accent,
-        fontFamily:'monospace', lineHeight:1,
-      }}>{value}</div>
-      {sub && (
-        <div style={{ fontSize:11, color:C.dim, marginTop:5 }}>
-          {sub}
-        </div>
-      )}
-      <div style={{
-        marginTop:10, height:3,
-        background:accent+'20', borderRadius:2,
-      }}>
-        <div style={{
-          height:'100%',
-          width:`${Math.min(parseFloat(value)||0,100)}%`,
-          background:accent, borderRadius:2,
-          transition:'width .6s',
-        }}/>
-      </div>
-    </div>
-  )
-}
-
-function Toast({ toast }) {
-  if (!toast) return null
-  return (
-    <div style={{
-      position:'fixed', top:16, right:16, zIndex:9999,
-      background:C.panel, border:`1px solid ${toast.color}`,
-      borderRadius:9, padding:'10px 18px',
-      color:toast.color, fontSize:12, fontWeight:700,
-      boxShadow:`0 0 24px ${toast.color}30`,
-      fontFamily:'monospace',
-    }}>{toast.icon} {toast.msg}</div>
-  )
-}
-
-export default function Dashboard({ user, rows, setRows, onLogout }) {
-  const [page,     setPage]    = useState('charts')
-  const [loading,  setLoading] = useState(false)
-  const [error,    setError]   = useState('')
-  const [dragging, setDragging]= useState(false)
-  const [toast,    setToast]   = useState(null)
-  const [metrics,  setMetrics] = useState(null)
-  const [fileMeta, setFileMeta]= useState(null)
-  const fileRef = useRef(null)
-
-  const token = localStorage.getItem('token')
-
-  // ── ALL hooks at top ──────────────────────────────────
-  const sentBarData = useMemo(() => !metrics ? [] : [
-    { name:'Positive', value:metrics.pos_n||0,     pct:metrics.csat_pct||0    },
-    { name:'Negative', value:metrics.neg_n||0,     pct:metrics.dsat_pct||0    },
-    { name:'Neutral',  value:metrics.neutral_n||0, pct:metrics.neutral_pct||0 },
-  ], [metrics])
-
-  const csatDsatBar = useMemo(() => !metrics ? [] : [
-    { name:'CSAT', value:metrics.csat_pct||0, fill:C.green },
-    { name:'DSAT', value:metrics.dsat_pct||0, fill:C.red   },
-  ], [metrics])
-
-  const teamData = useMemo(() => {
-    if (!metrics?.team_breakdown) return []
-    return Object.entries(metrics.team_breakdown)
-      .map(([name,v])=>({
-        name,
-        'CSAT%': v.csat_pct,
-        'DSAT%': v.dsat_pct,
-      }))
-      .sort((a,b)=>b['CSAT%']-a['CSAT%'])
-      .slice(0,8)
-  }, [metrics])
-
-  const regionData = useMemo(() => {
-    if (!metrics?.region_breakdown) return []
-    return Object.entries(metrics.region_breakdown)
-      .map(([name,v])=>({
-        name,
-        'CSAT%': v.csat_pct,
-        'DSAT%': v.dsat_pct,
-      }))
-      .sort((a,b)=>b['CSAT%']-a['CSAT%'])
-      .slice(0,8)
-  }, [metrics])
-
-  const ROLE_COLOR = { Admin:C.red, Manager:C.amber, Developer:C.cyan }
-  const roleColor  = ROLE_COLOR[user?.role] || C.violet
-
-  function notify(msg, color, icon='✓') {
-    setToast({ msg, color, icon })
-    setTimeout(()=>setToast(null), 3500)
+  "database": {
+    "type": "sqlite",
+    "path": "sentimentiq.db"
   }
+}
 
-  async function uploadToBackend(file) {
-    setError(''); setLoading(true)
-    setMetrics(null); setRows([])
 
-    try {
-      // Step 1 — Upload file
-      const formData = new FormData()
-      formData.append('file', file)
 
-      const uploadRes = await fetch(`${API}/data/upload`, {
-        method : 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body   : formData,
-      })
 
-      if (!uploadRes.ok) {
-        const err = await uploadRes.json()
-        throw new Error(err.detail || 'Upload failed')
-      }
 
-      const uploadData = await uploadRes.json()
-      setFileMeta({
-        name: uploadData.filename,
-        rows: uploadData.rows,
-      })
 
-      // Step 2 — Fetch metrics
-      const metricsRes = await fetch(`${API}/data/metrics`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      const metricsData = await metricsRes.json()
-      setMetrics(metricsData)
+# ============================================================
+# DATABASE SERVICE — SQLite
+# No installation needed!
+# Creates sentimentiq.db automatically!
+# ============================================================
 
-      // Step 3 — Fetch rows
-      const rowsRes = await fetch(
-        `${API}/data/rows?limit=10000`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      )
-      const rowsData = await rowsRes.json()
-      setRows(rowsData.rows || [])
+import sqlite3
+import json
+import os
 
-      setLoading(false)
-      setPage('charts')
-      notify(
-        `Imported ${uploadData.rows.toLocaleString()} rows`,
-        C.green
-      )
-
-    } catch(err) {
-      setError(err.message)
-      notify(err.message, C.red, '⚠')
-      setLoading(false)
-    }
-  }
-
-  function onDrop(e) {
-    e.preventDefault(); setDragging(false)
-    if (e.dataTransfer.files[0])
-      uploadToBackend(e.dataTransfer.files[0])
-  }
-
-  const NAV = [
-    { id:'charts', icon:'📊', label:'Charts', sub:'Analytics & KPIs' },
-    { id:'data',   icon:'📋', label:'Data',   sub:'Table & Export'   },
-  ]
-
-  // ── IMPORT SCREEN ──────────────────────────────────────
-  if (!rows.length && !loading) {
-    return (
-      <div style={{
-        minHeight:'100vh', background:C.bg0, color:C.text,
-        fontFamily:"'IBM Plex Mono','Courier New',monospace",
-        display:'flex', flexDirection:'column',
-      }}>
-        <Toast toast={toast}/>
-
-        {/* Header */}
-        <header style={{
-          background:C.bg1, borderBottom:`1px solid ${C.border}`,
-          height:56, display:'flex', alignItems:'center',
-          padding:'0 24px', gap:14,
-        }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <div style={{
-              width:30, height:30, borderRadius:8,
-              background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
-              display:'flex', alignItems:'center',
-              justifyContent:'center', fontSize:15,
-            }}>⚡</div>
-            <div>
-              <div style={{
-                fontSize:13, fontWeight:900,
-                color:C.cyan, letterSpacing:2,
-              }}>SENTIMENTIQ</div>
-              <div style={{ fontSize:9, color:C.dim, letterSpacing:1.5 }}>
-                NTT DATA · AI ANALYTICS PLATFORM
-              </div>
-            </div>
-          </div>
-          <div style={{ flex:1 }}/>
-          <div style={{
-            background:roleColor+'12',
-            border:`1px solid ${roleColor}40`,
-            borderRadius:7, padding:'4px 12px',
-            fontSize:10, color:roleColor, fontWeight:700,
-          }}>
-            👤 {user?.name}
-            <span style={{ color:C.dim, fontWeight:400 }}>
-              {' '}· {user?.role}
-            </span>
-          </div>
-          <button onClick={onLogout} style={{
-            background:C.red+'15', border:`1px solid ${C.red}40`,
-            color:C.red, borderRadius:7, padding:'5px 14px',
-            fontSize:11, fontWeight:700,
-            cursor:'pointer', fontFamily:'inherit',
-          }}>Sign Out</button>
-        </header>
-
-        {/* Import card */}
-        <div style={{
-          flex:1, display:'flex',
-          alignItems:'center', justifyContent:'center', padding:24,
-        }}>
-          <div style={{ width:'100%', maxWidth:520 }}>
-
-            <div style={{ textAlign:'center', marginBottom:28 }}>
-              <div style={{ fontSize:48, marginBottom:12 }}>📊</div>
-              <h1 style={{
-                fontSize:22, fontWeight:900,
-                color:C.cyan, margin:0, letterSpacing:1,
-              }}>Welcome, {user?.name}!</h1>
-              <p style={{ fontSize:12, color:C.sub, marginTop:8 }}>
-                Import your data file to get started
-              </p>
-            </div>
-
-            <div style={{
-              background:C.panel, border:`1px solid ${C.border}`,
-              borderRadius:14, padding:28,
-            }}>
-              <div style={{
-                fontSize:12, fontWeight:700,
-                color:C.text, marginBottom:4,
-              }}>Import Data File</div>
-              <div style={{
-                fontSize:10, color:C.sub, marginBottom:20,
-              }}>
-                Supports: CSV · Excel (.xlsx) · JSON · TXT
-              </div>
-
-              <input
-                ref={fileRef} type="file"
-                accept=".csv,.xlsx,.xls,.json,.txt"
-                style={{ display:'none' }}
-                onChange={e=>{
-                  if (e.target.files[0])
-                    uploadToBackend(e.target.files[0])
-                  e.target.value=''
-                }}
-              />
-
-              <div
-                onDragOver={e=>{e.preventDefault();setDragging(true)}}
-                onDragLeave={()=>setDragging(false)}
-                onDrop={onDrop}
-                onClick={()=>fileRef.current?.click()}
-                style={{
-                  border:`2px dashed ${dragging?C.cyan:C.border}`,
-                  borderRadius:12, padding:'40px 20px',
-                  textAlign:'center', cursor:'pointer',
-                  background:dragging?C.cyan+'08':C.bg2,
-                  transition:'all .2s', marginBottom:16,
-                }}
-              >
-                <div style={{ fontSize:40, marginBottom:10 }}>
-                  {dragging?'📂':'📁'}
-                </div>
-                <div style={{
-                  fontSize:14, fontWeight:700,
-                  color:dragging?C.cyan:C.text, marginBottom:6,
-                }}>
-                  {dragging
-                    ?'Drop file here!'
-                    :'Drag & drop your file here'}
-                </div>
-                <div style={{ fontSize:11, color:C.dim }}>
-                  or click to browse
-                </div>
-              </div>
-
-              <button
-                onClick={()=>fileRef.current?.click()}
-                style={{
-                  width:'100%',
-                  background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
-                  border:'none', borderRadius:10, padding:'13px',
-                  color:'#000', fontSize:13, fontWeight:900,
-                  cursor:'pointer', fontFamily:'inherit', letterSpacing:1,
-                }}
-              >⬆ Browse & Import File</button>
-
-              {error && (
-                <div style={{
-                  marginTop:14, background:C.red+'10',
-                  border:`1px solid ${C.red}40`,
-                  borderRadius:8, padding:'10px 14px',
-                  fontSize:11, color:C.red, fontWeight:600,
-                }}>⚠ {error}</div>
-              )}
-
-              <div style={{
-                marginTop:18, display:'flex',
-                justifyContent:'center', gap:8, flexWrap:'wrap',
-              }}>
-                {['CSV','Excel','JSON','TXT'].map(f=>(
-                  <div key={f} style={{
-                    background:C.bg2, border:`1px solid ${C.border}`,
-                    borderRadius:6, padding:'4px 12px',
-                    fontSize:10, color:C.sub, fontWeight:700,
-                  }}>{f}</div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <style>{`
-          *{box-sizing:border-box;margin:0;padding:0}
-          body{background:${C.bg0}}
-          button:active{transform:scale(.97)}
-        `}</style>
-      </div>
+# ── Load config ───────────────────────────────────────────
+def load_config():
+    config_path = os.path.join(
+        os.path.dirname(__file__),
+        '..', 'config.json'
     )
-  }
+    with open(config_path, 'r') as f:
+        return json.load(f)
 
-  // ── LOADING SCREEN ─────────────────────────────────────
-  if (loading) {
-    return (
-      <div style={{
-        minHeight:'100vh', background:C.bg0,
-        display:'flex', alignItems:'center',
-        justifyContent:'center', flexDirection:'column',
-        fontFamily:'monospace', color:C.text, gap:16,
-      }}>
-        <div style={{ fontSize:48 }}>⏳</div>
-        <div style={{
-          fontSize:16, fontWeight:700, color:C.amber,
-        }}>
-          Importing file, please wait…
-        </div>
-        <div style={{ fontSize:11, color:C.dim }}>
-          This may take a few seconds
-        </div>
-      </div>
-    )
-  }
+CONFIG  = load_config()
+DB_PATH = os.path.join(
+    os.path.dirname(__file__),
+    '..',
+    CONFIG['database']['path']
+)
 
-  // ── MAIN DASHBOARD ─────────────────────────────────────
-  return (
-    <div style={{
-      display:'flex', height:'100vh',
-      background:C.bg0, color:C.text,
-      fontFamily:"'IBM Plex Mono','Courier New',monospace",
-      overflow:'hidden',
-    }}>
-      <Toast toast={toast}/>
+print(f"[DBService] SQLite database: {DB_PATH}")
 
-      {/* LEFT SIDEBAR */}
-      <div style={{
-        width:220, minWidth:220, background:C.bg1,
-        borderRight:`1px solid ${C.border}`,
-        display:'flex', flexDirection:'column',
-        height:'100vh', position:'fixed',
-        left:0, top:0, zIndex:200,
-      }}>
 
-        {/* Logo */}
-        <div style={{
-          padding:'20px 18px 16px',
-          borderBottom:`1px solid ${C.border}`,
-        }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <div style={{
-              width:34, height:34, borderRadius:9,
-              background:`linear-gradient(135deg,${C.cyan},${C.violet})`,
-              display:'flex', alignItems:'center',
-              justifyContent:'center', fontSize:18, flexShrink:0,
-            }}>⚡</div>
-            <div>
-              <div style={{
-                fontSize:13, fontWeight:900,
-                color:C.cyan, letterSpacing:2,
-              }}>SENTIMENTIQ</div>
-              <div style={{ fontSize:9, color:C.dim, letterSpacing:1.5 }}>
-                NTT DATA · AI
-              </div>
-            </div>
-          </div>
-        </div>
+# ── Get connection ─────────────────────────────────────────
+def get_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-        {/* Import new file */}
-        <div style={{ padding:'12px 10px 0' }}>
-          <input
-            ref={fileRef} type="file"
-            accept=".csv,.xlsx,.xls,.json,.txt"
-            style={{ display:'none' }}
-            onChange={e=>{
-              if (e.target.files[0])
-                uploadToBackend(e.target.files[0])
-              e.target.value=''
-            }}
-          />
-          <button
-            onClick={()=>fileRef.current?.click()}
-            onDragOver={e=>{e.preventDefault();setDragging(true)}}
-            onDragLeave={()=>setDragging(false)}
-            onDrop={onDrop}
-            style={{
-              width:'100%',
-              background:dragging?C.cyan+'30':C.cyan+'18',
-              border:`1px solid ${C.cyan}50`,
-              color:C.cyan, borderRadius:8, padding:'8px',
-              fontSize:11, fontWeight:700,
-              cursor:'pointer', fontFamily:'inherit',
-            }}
-          >⬆ Import New File</button>
-        </div>
 
-        {/* File info */}
-        {fileMeta && (
-          <div style={{
-            margin:'10px 10px 0',
-            background:C.violet+'12',
-            border:`1px solid ${C.violet}30`,
-            borderRadius:8, padding:'8px 10px',
-          }}>
-            <div style={{
-              fontSize:10, color:C.violet, fontWeight:700,
-              whiteSpace:'nowrap', overflow:'hidden',
-              textOverflow:'ellipsis',
-            }}>
-              📁 {fileMeta.name.length>22
-                ? fileMeta.name.slice(0,20)+'…'
-                : fileMeta.name}
-            </div>
-            <div style={{ fontSize:9, color:C.dim, marginTop:3 }}>
-              {fileMeta.rows?.toLocaleString()} rows loaded
-            </div>
-          </div>
-        )}
+# ── Create tables ──────────────────────────────────────────
+def init_database():
+    """
+    Creates database and tables
+    if they don't exist!
+    Runs automatically on startup!
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
 
-        {/* Nav */}
-        <nav style={{
-          flex:1, padding:'12px 10px',
-          display:'flex', flexDirection:'column', gap:4,
-        }}>
-          <div style={{
-            fontSize:9, color:C.dim, letterSpacing:1.5,
-            fontWeight:700, padding:'4px 8px 8px',
-          }}>NAVIGATION</div>
+    # Create users table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            username   TEXT UNIQUE NOT NULL,
+            password   TEXT NOT NULL,
+            name       TEXT NOT NULL,
+            role       TEXT NOT NULL DEFAULT 'Viewer',
+            is_active  INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
 
-          {NAV.map(item=>{
-            const active = page===item.id
-            return (
-              <button
-                key={item.id}
-                onClick={()=>setPage(item.id)}
-                style={{
-                  display:'flex', alignItems:'center', gap:12,
-                  background:active?C.cyan+'18':'transparent',
-                  border:`1px solid ${active?C.cyan+'50':'transparent'}`,
-                  borderRadius:9, padding:'10px 12px',
-                  cursor:'pointer', fontFamily:'inherit',
-                  textAlign:'left', width:'100%',
-                }}
-                onMouseEnter={e=>{
-                  if (!active) {
-                    e.currentTarget.style.background=C.bg2
-                    e.currentTarget.style.borderColor=C.border
-                  }
-                }}
-                onMouseLeave={e=>{
-                  if (!active) {
-                    e.currentTarget.style.background='transparent'
-                    e.currentTarget.style.borderColor='transparent'
-                  }
-                }}
-              >
-                <span style={{ fontSize:18 }}>{item.icon}</span>
-                <div>
-                  <div style={{
-                    fontSize:12, fontWeight:700,
-                    color:active?C.cyan:C.text,
-                  }}>{item.label}</div>
-                  <div style={{ fontSize:9, color:C.dim, marginTop:1 }}>
-                    {item.sub}
-                  </div>
-                </div>
-                {active && (
-                  <div style={{
-                    marginLeft:'auto', width:3, height:26,
-                    background:C.cyan, borderRadius:2,
-                  }}/>
-                )}
-              </button>
+    # Create feedback_data table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS feedback_data (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            upload_id   TEXT NOT NULL,
+            filename    TEXT NOT NULL,
+            uploaded_by TEXT NOT NULL,
+            uploaded_at TEXT DEFAULT (datetime('now')),
+            row_data    TEXT NOT NULL
+        )
+    """)
+
+    # Insert default users if table is empty
+    cursor.execute("SELECT COUNT(*) FROM users")
+    count = cursor.fetchone()[0]
+
+    if count == 0:
+        print("[DBService] Adding default users...")
+        default_users = [
+            ('om.badoni',  'NTT@2026',
+             'Om Badoni',   'Developer'),
+            ('manager',    'Manager@2026',
+             'NTT Manager', 'Manager'),
+            ('admin',      'Admin@2026',
+             'Admin User',  'Admin'),
+        ]
+        cursor.executemany("""
+            INSERT INTO users
+                (username, password, name, role)
+            VALUES (?, ?, ?, ?)
+        """, default_users)
+        print("[DBService] Default users added!")
+
+    conn.commit()
+    conn.close()
+    print("[DBService] Database ready!")
+
+
+# ============================================================
+# USER OPERATIONS
+# ============================================================
+
+def get_user_by_username(username: str):
+    """
+    Fetch user from SQLite users table
+    Returns user dict or None
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, username, password,
+                   name, role, is_active
+            FROM users
+            WHERE username = ?
+            AND   is_active = 1
+        """, (username,))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            print(f"[DBService] User found: {username}")
+            return dict(row)
+
+        print(f"[DBService] User not found: {username}")
+        return None
+
+    except Exception as e:
+        print(f"[DBService] Error: {e}")
+        return None
+
+
+def get_all_users():
+    """
+    Returns all active users without passwords
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, username, name,
+                   role, created_at
+            FROM users
+            WHERE is_active = 1
+            ORDER BY created_at ASC
+        """)
+
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    except Exception as e:
+        print(f"[DBService] Error: {e}")
+        return []
+
+
+def add_user(username, password, name,
+             role='Viewer'):
+    """
+    Add new user to database
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO users
+                (username, password, name, role)
+            VALUES (?, ?, ?, ?)
+        """, (username, password, name, role))
+
+        conn.commit()
+        conn.close()
+        print(f"[DBService] User added: {username}")
+        return True
+
+    except sqlite3.IntegrityError:
+        print(f"[DBService] User exists: {username}")
+        return False
+    except Exception as e:
+        print(f"[DBService] Error: {e}")
+        return False
+
+
+def deactivate_user(username: str):
+    """Disable user without deleting"""
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE users
+            SET is_active = 0
+            WHERE username = ?
+        """, (username,))
+
+        conn.commit()
+        conn.close()
+        return True
+
+    except Exception as e:
+        print(f"[DBService] Error: {e}")
+        return False
+
+
+# ============================================================
+# DATA OPERATIONS
+# ============================================================
+
+def save_upload(rows: list,
+                filename: str,
+                uploaded_by: str,
+                upload_id: str):
+    """
+    Save all uploaded rows to SQLite
+    Each row saved as JSON string
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+
+        batch = [
+            (
+                upload_id,
+                filename,
+                uploaded_by,
+                json.dumps(row)
             )
-          })}
-        </nav>
+            for row in rows
+        ]
 
-        {/* Quick stats */}
-        {metrics && (
-          <div style={{
-            margin:'0 10px 12px',
-            background:C.bg2, border:`1px solid ${C.border}`,
-            borderRadius:9, padding:'10px 12px',
-          }}>
-            <div style={{
-              fontSize:9, color:C.dim, letterSpacing:1.5,
-              fontWeight:700, marginBottom:8,
-            }}>QUICK STATS</div>
-            {[
-              ['CSAT',    `${metrics.csat_pct||0}%`,    C.green],
-              ['DSAT',    `${metrics.dsat_pct||0}%`,    C.red  ],
-              ['Neutral', `${metrics.neutral_pct||0}%`, C.amber],
-            ].map(([label,value,color])=>(
-              <div key={label} style={{
-                display:'flex', justifyContent:'space-between',
-                marginBottom:5, alignItems:'center',
-              }}>
-                <span style={{ fontSize:10, color:C.sub }}>
-                  {label}
-                </span>
-                <span style={{
-                  fontSize:12, fontWeight:900,
-                  color, fontFamily:'monospace',
-                }}>{value}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        cursor.executemany("""
+            INSERT INTO feedback_data
+                (upload_id, filename,
+                 uploaded_by, row_data)
+            VALUES (?, ?, ?, ?)
+        """, batch)
 
-        {/* User + logout */}
-        <div style={{
-          borderTop:`1px solid ${C.border}`, padding:'12px',
-        }}>
-          <div style={{
-            display:'flex', alignItems:'center',
-            justifyContent:'space-between', gap:8,
-          }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{
-                fontSize:11, fontWeight:700, color:roleColor,
-                whiteSpace:'nowrap', overflow:'hidden',
-                textOverflow:'ellipsis',
-              }}>{user?.name}</div>
-              <div style={{ fontSize:9, color:C.dim, marginTop:1 }}>
-                {user?.role}
-              </div>
-            </div>
-            <button onClick={onLogout} style={{
-              background:C.red+'15', border:`1px solid ${C.red}40`,
-              color:C.red, borderRadius:6, padding:'5px 9px',
-              fontSize:10, fontWeight:700,
-              cursor:'pointer', fontFamily:'inherit', flexShrink:0,
-            }}>OUT</button>
-          </div>
-        </div>
-      </div>
+        conn.commit()
+        conn.close()
 
-      {/* RIGHT CONTENT */}
-      <div style={{
-        marginLeft:220, flex:1,
-        height:'100vh', overflowY:'auto', overflowX:'hidden',
-      }}>
+        print(f"[DBService] Saved {len(rows)} "
+              f"rows → sentimentiq.db")
+        return True
 
-        {/* CHARTS PAGE */}
-        {page==='charts' && (
-          <div style={{ padding:'24px' }}>
-            <div style={{ marginBottom:20 }}>
-              <h1 style={{
-                fontSize:20, fontWeight:900,
-                color:C.cyan, margin:0, letterSpacing:1,
-              }}>Charts & Analytics</h1>
-              <p style={{ fontSize:11, color:C.sub, margin:'4px 0 0' }}>
-                {metrics?.total?.toLocaleString()} records analysed
-              </p>
-            </div>
+    except Exception as e:
+        print(f"[DBService] Save error: {e}")
+        return False
 
-            {/* KPI cards */}
-            <div style={{
-              display:'grid', gridTemplateColumns:'repeat(4,1fr)',
-              gap:12, marginBottom:20,
-            }}>
-              <KPI
-                label="Total Records"
-                value={(metrics?.total||0).toLocaleString()}
-                sub="records loaded"
-                accent={C.sky}
-              />
-              <KPI
-                label="CSAT"
-                value={`${metrics?.csat_pct||0}%`}
-                sub={`${metrics?.csat_n||0} satisfied`}
-                accent={C.green}
-              />
-              <KPI
-                label="DSAT"
-                value={`${metrics?.dsat_pct||0}%`}
-                sub={`${metrics?.dsat_n||0} dissatisfied`}
-                accent={C.red}
-              />
-              <KPI
-                label="Neutral"
-                value={`${metrics?.neutral_pct||0}%`}
-                sub={`${metrics?.neutral_n||0} neutral`}
-                accent={C.amber}
-              />
-            </div>
 
-            {/* Charts row 1 */}
-            <div style={{
-              display:'grid', gridTemplateColumns:'1fr 1fr',
-              gap:14, marginBottom:14,
-            }}>
-              <div style={{
-                background:C.panel, border:`1px solid ${C.border}`,
-                borderRadius:12, padding:'18px 20px',
-              }}>
-                <div style={{
-                  fontSize:12, fontWeight:700,
-                  color:C.text, marginBottom:2,
-                }}>Sentiment Distribution</div>
-                <div style={{
-                  fontSize:10, color:C.sub, marginBottom:14,
-                }}>
-                  Pos: {metrics?.pos_n||0} ·
-                  Neg: {metrics?.neg_n||0} ·
-                  Neu: {metrics?.neutral_n||0}
-                </div>
-                <ResponsiveContainer width="100%" height={210}>
-                  <BarChart data={sentBarData} barSize={55}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                    <XAxis dataKey="name" stroke={C.dim} fontSize={11}/>
-                    <YAxis stroke={C.dim} fontSize={10}/>
-                    <Tooltip contentStyle={TT}
-                      formatter={(v,n,p)=>[
-                        `${v} (${p.payload.pct}%)`,'Count'
-                      ]}/>
-                    <Bar dataKey="value" radius={[6,6,0,0]}>
-                      <Cell fill={C.green}/>
-                      <Cell fill={C.red}/>
-                      <Cell fill={C.amber}/>
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+def get_upload_rows(upload_id: str,
+                    limit: int = 10000):
+    """
+    Get rows for specific upload from SQLite
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
 
-              <div style={{
-                background:C.panel, border:`1px solid ${C.border}`,
-                borderRadius:12, padding:'18px 20px',
-              }}>
-                <div style={{
-                  fontSize:12, fontWeight:700,
-                  color:C.text, marginBottom:2,
-                }}>CSAT vs DSAT</div>
-                <div style={{
-                  fontSize:10, color:C.sub, marginBottom:14,
-                }}>
-                  CSAT: {metrics?.csat_pct||0}% ·
-                  DSAT: {metrics?.dsat_pct||0}%
-                </div>
-                <ResponsiveContainer width="100%" height={210}>
-                  <BarChart data={csatDsatBar} barSize={90}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                    <XAxis dataKey="name" stroke={C.dim} fontSize={12}/>
-                    <YAxis stroke={C.dim} fontSize={10}
-                      domain={[0,100]} unit="%"/>
-                    <Tooltip contentStyle={TT}
-                      formatter={v=>[`${v}%`]}/>
-                    <Bar dataKey="value" radius={[6,6,0,0]}>
-                      {csatDsatBar.map((d,i)=>(
-                        <Cell key={i} fill={d.fill}/>
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+        cursor.execute("""
+            SELECT row_data
+            FROM feedback_data
+            WHERE upload_id = ?
+            LIMIT ?
+        """, (upload_id, limit))
 
-            {/* Team + Region */}
-            {(teamData.length>0||regionData.length>0) && (
-              <div style={{
-                display:'grid',
-                gridTemplateColumns:
-                  teamData.length>0&&regionData.length>0
-                    ?'1fr 1fr':'1fr',
-                gap:14, marginBottom:14,
-              }}>
-                {teamData.length>0 && (
-                  <div style={{
-                    background:C.panel, border:`1px solid ${C.border}`,
-                    borderRadius:12, padding:'18px 20px',
-                  }}>
-                    <div style={{
-                      fontSize:12, fontWeight:700,
-                      color:C.text, marginBottom:2,
-                    }}>CSAT% and DSAT% by Team</div>
-                    <div style={{
-                      fontSize:10, color:C.sub, marginBottom:14,
-                    }}>Team performance</div>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={teamData} barSize={12}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                        <XAxis dataKey="name" stroke={C.dim} fontSize={9}
-                          interval={0} angle={-20}
-                          textAnchor="end" height={50}/>
-                        <YAxis stroke={C.dim} fontSize={10} unit="%"/>
-                        <Tooltip contentStyle={TT}
-                          formatter={v=>[`${v}%`]}/>
-                        <Legend iconType="circle" iconSize={8}
-                          wrapperStyle={{fontSize:11}}/>
-                        <Bar dataKey="CSAT%" fill={C.green} radius={[4,4,0,0]}/>
-                        <Bar dataKey="DSAT%" fill={C.red}   radius={[4,4,0,0]}/>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-                {regionData.length>0 && (
-                  <div style={{
-                    background:C.panel, border:`1px solid ${C.border}`,
-                    borderRadius:12, padding:'18px 20px',
-                  }}>
-                    <div style={{
-                      fontSize:12, fontWeight:700,
-                      color:C.text, marginBottom:2,
-                    }}>CSAT% and DSAT% by Region</div>
-                    <div style={{
-                      fontSize:10, color:C.sub, marginBottom:14,
-                    }}>Regional performance</div>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={regionData} barSize={12}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                        <XAxis dataKey="name" stroke={C.dim} fontSize={9}
-                          interval={0} angle={-20}
-                          textAnchor="end" height={60}/>
-                        <YAxis stroke={C.dim} fontSize={10} unit="%"/>
-                        <Tooltip contentStyle={TT}
-                          formatter={v=>[`${v}%`]}/>
-                        <Legend iconType="circle" iconSize={8}
-                          wrapperStyle={{fontSize:11}}/>
-                        <Bar dataKey="CSAT%" fill={C.cyan}   radius={[4,4,0,0]}/>
-                        <Bar dataKey="DSAT%" fill={C.violet} radius={[4,4,0,0]}/>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        rows = cursor.fetchall()
+        conn.close()
 
-        {/* DATA PAGE */}
-        {page==='data' && (
-          <div style={{ padding:'24px' }}>
-            <div style={{ marginBottom:20 }}>
-              <h1 style={{
-                fontSize:20, fontWeight:900,
-                color:C.cyan, margin:0, letterSpacing:1,
-              }}>Data</h1>
-              <p style={{ fontSize:11, color:C.sub, margin:'4px 0 0' }}>
-                Sort · Filter · Export · 200 rows per page
-              </p>
-            </div>
-            <DataTable rows={rows} onNotify={notify}/>
-          </div>
-        )}
-      </div>
+        return [
+            json.loads(r['row_data'])
+            for r in rows
+        ]
 
-      <style>{`
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{background:${C.bg0};overflow:hidden}
-        select option{background:${C.bg2};color:${C.text}}
-        input::placeholder{color:${C.dim}}
-        button:active{transform:scale(.97)}
-        ::-webkit-scrollbar{width:8px;height:8px}
-        ::-webkit-scrollbar-track{background:${C.bg1}}
-        ::-webkit-scrollbar-thumb{
-          background:${C.border};border-radius:4px}
-        ::-webkit-scrollbar-thumb:hover{background:${C.dim}}
-      `}</style>
-    </div>
-  )
+    except Exception as e:
+        print(f"[DBService] Error: {e}")
+        return []
+
+
+def get_all_uploads():
+    """
+    Get history of all uploaded files
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                upload_id,
+                filename,
+                uploaded_by,
+                uploaded_at,
+                COUNT(*) as row_count
+            FROM feedback_data
+            GROUP BY
+                upload_id,
+                filename,
+                uploaded_by,
+                uploaded_at
+            ORDER BY uploaded_at DESC
+        """)
+
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    except Exception as e:
+        print(f"[DBService] Error: {e}")
+        return []
+
+
+def get_latest_upload_id():
+    """Get most recent upload_id"""
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT upload_id
+            FROM feedback_data
+            ORDER BY uploaded_at DESC
+            LIMIT 1
+        """)
+
+        result = cursor.fetchone()
+        conn.close()
+        return result['upload_id'] if result else None
+
+    except Exception as e:
+        return None
+
+
+def test_connection() -> bool:
+    """Test if database is working"""
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        conn.close()
+        print("[DBService] SQLite connected!")
+        return True
+    except Exception as e:
+        print(f"[DBService] Error: {e}")
+        return False
+
+
+
+
+
+
+        # ============================================================
+# AUTH MICROSERVICE — Uses SQLite Database
+# ============================================================
+
+import hashlib
+from datetime import datetime
+from typing import Optional
+
+from services.db_service import (
+    get_user_by_username,
+    get_all_users,
+    add_user,
+)
+
+print("[AuthService] Auth microservice loaded")
+
+
+def verify_password(plain: str,
+                    stored: str) -> bool:
+    return plain == stored
+
+
+def authenticate_user(username: str,
+                      password: str):
+    """
+    Authenticates user from SQLite database
+    """
+    print(f"[AuthService] Login attempt: {username}")
+
+    user = get_user_by_username(username)
+
+    if not user:
+        print(f"[AuthService] Not found: {username}")
+        return None
+
+    if not verify_password(
+        password, user['password']
+    ):
+        print(f"[AuthService] Wrong password!")
+        return None
+
+    print(f"[AuthService] Login success: "
+          f"{username} ({user['role']})")
+    return user
+
+
+def create_token(user: dict) -> str:
+    data  = (f"{user['username']}:"
+             f"{user['role']}:"
+             f"{datetime.now()}")
+    token = hashlib.sha256(
+        data.encode()
+    ).hexdigest()
+    return token
+
+
+def get_users_list():
+    return get_all_users()
+
+
+def register_user(username, password,
+                  name, role='Viewer'):
+    return add_user(username, password,
+                    name, role)
+
+
+
+
+
+
+# ============================================================
+# DATA MICROSERVICE — Uses SQLite Database
+# ============================================================
+
+import io
+import uuid
+import pandas as pd
+
+from services.db_service import (
+    save_upload,
+    get_upload_rows,
+    get_all_uploads,
+    test_connection,
+)
+
+print("[DataService] Data microservice loaded")
+
+current_df     = pd.DataFrame()
+current_upload = {
+    'upload_id'  : None,
+    'filename'   : None,
+    'uploaded_by': None,
+    'rows'       : 0,
 }
+
+
+def is_true(val) -> bool:
+    if pd.isna(val): return False
+    return val == 1 or val == True or \
+        str(val).strip().lower() in \
+        ['1', 'true', 'yes']
+
+
+def find_col(df, *names):
+    cols = [
+        c.strip().lower().replace(' ', '')
+        for c in df.columns
+    ]
+    for n in names:
+        n_clean = n.lower().replace(' ', '')
+        for i, c in enumerate(cols):
+            if c == n_clean:
+                return df.columns[i]
+    return None
+
+
+def process_upload(contents: bytes,
+                   filename: str,
+                   uploaded_by: str = 'unknown'):
+    global current_df, current_upload
+
+    name = filename.lower()
+
+    if name.endswith('.csv'):
+        current_df = pd.read_csv(
+            io.BytesIO(contents))
+    elif name.endswith(('.xlsx', '.xls')):
+        current_df = pd.read_excel(
+            io.BytesIO(contents))
+    elif name.endswith('.json'):
+        current_df = pd.read_json(
+            io.BytesIO(contents))
+    else:
+        raise ValueError(
+            f"Unsupported file: {filename}")
+
+    current_df = current_df.fillna('')
+
+    rows      = current_df.to_dict(
+        orient='records')
+    upload_id = f"upload_{uuid.uuid4().hex[:8]}"
+
+    # Save to SQLite!
+    save_upload(
+        rows        = rows,
+        filename    = filename,
+        uploaded_by = uploaded_by,
+        upload_id   = upload_id,
+    )
+
+    current_upload = {
+        'upload_id'  : upload_id,
+        'filename'   : filename,
+        'uploaded_by': uploaded_by,
+        'rows'       : len(rows),
+    }
+
+    print(f"[DataService] {len(rows)} rows "
+          f"saved to sentimentiq.db!")
+
+    return {
+        "message"  : f"Uploaded {len(rows)} rows",
+        "rows"     : len(rows),
+        "columns"  : list(current_df.columns),
+        "filename" : filename,
+        "upload_id": upload_id,
+    }
+
+
+def get_metrics() -> dict:
+    global current_df
+
+    if current_df.empty:
+        return {
+            "message": "No data uploaded yet.",
+            "total"  : 0
+        }
+
+    df    = current_df
+    total = len(df)
+
+    csat_col   = find_col(df,'ISHAPPY','CSAT')
+    dsat_col   = find_col(df,'ISSAD','DSAT')
+    pass_col   = find_col(df,'ISPASSIVE')
+    sent_col   = find_col(df,
+                  'Predicted_Sentiment',
+                  'Sentiment')
+    team_col   = find_col(df,'TEAM','Department')
+    region_col = find_col(df,'REGION','Industry')
+
+    csat_n = sum(
+        1 for v in df[csat_col]
+        if is_true(v)
+    ) if csat_col else 0
+
+    dsat_n = sum(
+        1 for v in df[dsat_col]
+        if is_true(v)
+    ) if dsat_col else 0
+
+    neu_n = sum(
+        1 for v in df[pass_col]
+        if is_true(v)
+    ) if pass_col else 0
+
+    if sent_col:
+        pos_n = sum(
+            1 for v in df[sent_col]
+            if str(v).strip().lower()=='positive'
+        )
+        neg_n = sum(
+            1 for v in df[sent_col]
+            if str(v).strip().lower()=='negative'
+        )
+        neu_n = sum(
+            1 for v in df[sent_col]
+            if str(v).strip().lower()=='neutral'
+        )
+    else:
+        pos_n = csat_n
+        neg_n = dsat_n
+
+    pct = lambda n: round(
+        n/total*100, 1
+    ) if total else 0
+
+    result = {
+        "total"      : total,
+        "csat_pct"   : pct(csat_n),
+        "dsat_pct"   : pct(dsat_n),
+        "neutral_pct": pct(neu_n),
+        "csat_n"     : csat_n,
+        "dsat_n"     : dsat_n,
+        "neutral_n"  : neu_n,
+        "pos_n"      : pos_n,
+        "neg_n"      : neg_n,
+    }
+
+    # Team breakdown
+    if team_col and csat_col:
+        stats = {}
+        for _, row in df.iterrows():
+            k = str(row[team_col]).strip()
+            if not k or k == 'nan':
+                continue
+            if k not in stats:
+                stats[k] = {
+                    'csat':0,'dsat':0,'total':0
+                }
+            stats[k]['total'] += 1
+            if is_true(row[csat_col]):
+                stats[k]['csat'] += 1
+            if dsat_col and is_true(
+                row[dsat_col]):
+                stats[k]['dsat'] += 1
+
+        result['team_breakdown'] = {
+            t: {
+                'csat_pct': round(
+                    v['csat']/v['total']*100,1
+                ) if v['total'] else 0,
+                'dsat_pct': round(
+                    v['dsat']/v['total']*100,1
+                ) if v['total'] else 0,
+                'total': v['total'],
+            }
+            for t, v in stats.items()
+        }
+
+    # Region breakdown
+    if region_col and csat_col:
+        stats = {}
+        for _, row in df.iterrows():
+            k = str(row[region_col]).strip()
+            if not k or k == 'nan':
+                continue
+            if k not in stats:
+                stats[k] = {
+                    'csat':0,'dsat':0,'total':0
+                }
+            stats[k]['total'] += 1
+            if is_true(row[csat_col]):
+                stats[k]['csat'] += 1
+            if dsat_col and is_true(
+                row[dsat_col]):
+                stats[k]['dsat'] += 1
+
+        result['region_breakdown'] = {
+            r: {
+                'csat_pct': round(
+                    v['csat']/v['total']*100,1
+                ) if v['total'] else 0,
+                'dsat_pct': round(
+                    v['dsat']/v['total']*100,1
+                ) if v['total'] else 0,
+                'total': v['total'],
+            }
+            for r, v in stats.items()
+        }
+
+    return result
+
+
+def get_data(limit: int = 200,
+             upload_id: str = None) -> dict:
+    global current_df, current_upload
+
+    if upload_id:
+        rows = get_upload_rows(upload_id, limit)
+        return {
+            "rows"     : rows,
+            "total"    : len(rows),
+            "upload_id": upload_id,
+        }
+
+    if not current_df.empty:
+        rows = current_df.head(limit).to_dict(
+            orient='records')
+        return {
+            "rows"     : rows,
+            "total"    : len(current_df),
+            "upload_id": current_upload['upload_id'],
+        }
+
+    return {"rows": [], "total": 0}
+
+
+def get_uploads_history():
+    return get_all_uploads()
+
+
+def get_status() -> dict:
+    return {
+        "data_loaded"   : not current_df.empty,
+        "data_rows"     : len(current_df),
+        "current_upload": current_upload,
+        "columns"       : list(current_df.columns)
+                          if not current_df.empty
+                          else [],
+    }
+
+
+
+
+
+
+
+
+
+    # ============================================================
+# DATA MICROSERVICE — Uses SQLite Database
+# ============================================================
+
+import io
+import uuid
+import pandas as pd
+
+from services.db_service import (
+    save_upload,
+    get_upload_rows,
+    get_all_uploads,
+    test_connection,
+)
+
+print("[DataService] Data microservice loaded")
+
+current_df     = pd.DataFrame()
+current_upload = {
+    'upload_id'  : None,
+    'filename'   : None,
+    'uploaded_by': None,
+    'rows'       : 0,
+}
+
+
+def is_true(val) -> bool:
+    if pd.isna(val): return False
+    return val == 1 or val == True or \
+        str(val).strip().lower() in \
+        ['1', 'true', 'yes']
+
+
+def find_col(df, *names):
+    cols = [
+        c.strip().lower().replace(' ', '')
+        for c in df.columns
+    ]
+    for n in names:
+        n_clean = n.lower().replace(' ', '')
+        for i, c in enumerate(cols):
+            if c == n_clean:
+                return df.columns[i]
+    return None
+
+
+def process_upload(contents: bytes,
+                   filename: str,
+                   uploaded_by: str = 'unknown'):
+    global current_df, current_upload
+
+    name = filename.lower()
+
+    if name.endswith('.csv'):
+        current_df = pd.read_csv(
+            io.BytesIO(contents))
+    elif name.endswith(('.xlsx', '.xls')):
+        current_df = pd.read_excel(
+            io.BytesIO(contents))
+    elif name.endswith('.json'):
+        current_df = pd.read_json(
+            io.BytesIO(contents))
+    else:
+        raise ValueError(
+            f"Unsupported file: {filename}")
+
+    current_df = current_df.fillna('')
+
+    rows      = current_df.to_dict(
+        orient='records')
+    upload_id = f"upload_{uuid.uuid4().hex[:8]}"
+
+    # Save to SQLite!
+    save_upload(
+        rows        = rows,
+        filename    = filename,
+        uploaded_by = uploaded_by,
+        upload_id   = upload_id,
+    )
+
+    current_upload = {
+        'upload_id'  : upload_id,
+        'filename'   : filename,
+        'uploaded_by': uploaded_by,
+        'rows'       : len(rows),
+    }
+
+    print(f"[DataService] {len(rows)} rows "
+          f"saved to sentimentiq.db!")
+
+    return {
+        "message"  : f"Uploaded {len(rows)} rows",
+        "rows"     : len(rows),
+        "columns"  : list(current_df.columns),
+        "filename" : filename,
+        "upload_id": upload_id,
+    }
+
+
+def get_metrics() -> dict:
+    global current_df
+
+    if current_df.empty:
+        return {
+            "message": "No data uploaded yet.",
+            "total"  : 0
+        }
+
+    df    = current_df
+    total = len(df)
+
+    csat_col   = find_col(df,'ISHAPPY','CSAT')
+    dsat_col   = find_col(df,'ISSAD','DSAT')
+    pass_col   = find_col(df,'ISPASSIVE')
+    sent_col   = find_col(df,
+                  'Predicted_Sentiment',
+                  'Sentiment')
+    team_col   = find_col(df,'TEAM','Department')
+    region_col = find_col(df,'REGION','Industry')
+
+    csat_n = sum(
+        1 for v in df[csat_col]
+        if is_true(v)
+    ) if csat_col else 0
+
+    dsat_n = sum(
+        1 for v in df[dsat_col]
+        if is_true(v)
+    ) if dsat_col else 0
+
+    neu_n = sum(
+        1 for v in df[pass_col]
+        if is_true(v)
+    ) if pass_col else 0
+
+    if sent_col:
+        pos_n = sum(
+            1 for v in df[sent_col]
+            if str(v).strip().lower()=='positive'
+        )
+        neg_n = sum(
+            1 for v in df[sent_col]
+            if str(v).strip().lower()=='negative'
+        )
+        neu_n = sum(
+            1 for v in df[sent_col]
+            if str(v).strip().lower()=='neutral'
+        )
+    else:
+        pos_n = csat_n
+        neg_n = dsat_n
+
+    pct = lambda n: round(
+        n/total*100, 1
+    ) if total else 0
+
+    result = {
+        "total"      : total,
+        "csat_pct"   : pct(csat_n),
+        "dsat_pct"   : pct(dsat_n),
+        "neutral_pct": pct(neu_n),
+        "csat_n"     : csat_n,
+        "dsat_n"     : dsat_n,
+        "neutral_n"  : neu_n,
+        "pos_n"      : pos_n,
+        "neg_n"      : neg_n,
+    }
+
+    # Team breakdown
+    if team_col and csat_col:
+        stats = {}
+        for _, row in df.iterrows():
+            k = str(row[team_col]).strip()
+            if not k or k == 'nan':
+                continue
+            if k not in stats:
+                stats[k] = {
+                    'csat':0,'dsat':0,'total':0
+                }
+            stats[k]['total'] += 1
+            if is_true(row[csat_col]):
+                stats[k]['csat'] += 1
+            if dsat_col and is_true(
+                row[dsat_col]):
+                stats[k]['dsat'] += 1
+
+        result['team_breakdown'] = {
+            t: {
+                'csat_pct': round(
+                    v['csat']/v['total']*100,1
+                ) if v['total'] else 0,
+                'dsat_pct': round(
+                    v['dsat']/v['total']*100,1
+                ) if v['total'] else 0,
+                'total': v['total'],
+            }
+            for t, v in stats.items()
+        }
+
+    # Region breakdown
+    if region_col and csat_col:
+        stats = {}
+        for _, row in df.iterrows():
+            k = str(row[region_col]).strip()
+            if not k or k == 'nan':
+                continue
+            if k not in stats:
+                stats[k] = {
+                    'csat':0,'dsat':0,'total':0
+                }
+            stats[k]['total'] += 1
+            if is_true(row[csat_col]):
+                stats[k]['csat'] += 1
+            if dsat_col and is_true(
+                row[dsat_col]):
+                stats[k]['dsat'] += 1
+
+        result['region_breakdown'] = {
+            r: {
+                'csat_pct': round(
+                    v['csat']/v['total']*100,1
+                ) if v['total'] else 0,
+                'dsat_pct': round(
+                    v['dsat']/v['total']*100,1
+                ) if v['total'] else 0,
+                'total': v['total'],
+            }
+            for r, v in stats.items()
+        }
+
+    return result
+
+
+def get_data(limit: int = 200,
+             upload_id: str = None) -> dict:
+    global current_df, current_upload
+
+    if upload_id:
+        rows = get_upload_rows(upload_id, limit)
+        return {
+            "rows"     : rows,
+            "total"    : len(rows),
+            "upload_id": upload_id,
+        }
+
+    if not current_df.empty:
+        rows = current_df.head(limit).to_dict(
+            orient='records')
+        return {
+            "rows"     : rows,
+            "total"    : len(current_df),
+            "upload_id": current_upload['upload_id'],
+        }
+
+    return {"rows": [], "total": 0}
+
+
+def get_uploads_history():
+    return get_all_uploads()
+
+
+def get_status() -> dict:
+    return {
+        "data_loaded"   : not current_df.empty,
+        "data_rows"     : len(current_df),
+        "current_upload": current_upload,
+        "columns"       : list(current_df.columns)
+                          if not current_df.empty
+                          else [],
+    }
+
+
+
+
+
+    # ============================================================
+# SENTIMENTIQ BACKEND — With SQLite Database
+# ============================================================
+
+import json
+import os
+
+with open('config.json', 'r') as f:
+    CONFIG = json.load(f)
+
+print("\n" + "="*60)
+print(f"   {CONFIG['app']['name']} BACKEND")
+print(f"   {CONFIG['app']['company']} "
+      f"· v{CONFIG['app']['version']}")
+print("="*60 + "\n")
+
+from fastapi import (
+    FastAPI, UploadFile, File, HTTPException
+)
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional
+
+from services.db_service import (
+    init_database,
+    test_connection,
+)
+from services.auth_service import (
+    authenticate_user,
+    create_token,
+    get_users_list,
+    register_user,
+)
+from services.data_service import (
+    process_upload,
+    get_metrics,
+    get_data,
+    get_status,
+    get_uploads_history,
+)
+
+app = FastAPI(
+    title   = CONFIG['app']['name'],
+    version = CONFIG['app']['version'],
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins = CONFIG['cors']['allow_origins'],
+    allow_methods = ["*"],
+    allow_headers = ["*"],
+)
+
+
+@app.on_event("startup")
+async def startup():
+    print("[Backend] Starting up...")
+    init_database()
+    test_connection()
+    print("[Backend] Ready!\n")
+
+
+# ── Auth endpoints ────────────────────────────────────────
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    name    : str
+    role    : str = 'Viewer'
+
+
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    user = authenticate_user(
+        req.username, req.password)
+
+    if not user:
+        raise HTTPException(
+            status_code = 401,
+            detail      = "Invalid username or password"
+        )
+
+    token = create_token(user)
+    return {
+        "success": True,
+        "token"  : token,
+        "user"   : {
+            "username": user['username'],
+            "name"    : user['name'],
+            "role"    : user['role'],
+        },
+        "message": f"Welcome {user['name']}!"
+    }
+
+
+@app.post("/auth/register")
+def register(req: RegisterRequest):
+    success = register_user(
+        req.username, req.password,
+        req.name, req.role
+    )
+    if not success:
+        raise HTTPException(
+            400, "User already exists!")
+    return {
+        "success": True,
+        "message": f"User {req.username} created!"
+    }
+
+
+@app.get("/auth/users")
+def list_users():
+    return {"users": get_users_list()}
+
+
+# ── Data endpoints ────────────────────────────────────────
+@app.post("/data/upload")
+async def upload(
+    file: UploadFile = File(...),
+    username: str = "unknown"
+):
+    try:
+        contents = await file.read()
+        result   = process_upload(
+            contents    = contents,
+            filename    = file.filename,
+            uploaded_by = username,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/data/metrics")
+def metrics():
+    return get_metrics()
+
+
+@app.get("/data/rows")
+def rows(limit: int = 200,
+         upload_id: str = None):
+    return get_data(limit, upload_id)
+
+
+@app.get("/data/uploads")
+def uploads():
+    history = get_uploads_history()
+    return {"uploads": history,
+            "total"  : len(history)}
+
+
+@app.get("/data/status")
+def data_status():
+    return get_status()
+
+
+# ── System endpoints ──────────────────────────────────────
+@app.get("/health")
+def health():
+    db_ok = test_connection()
+    data  = get_status()
+    return {
+        "status"    : "running",
+        "app"       : CONFIG['app']['name'],
+        "version"   : CONFIG['app']['version'],
+        "database"  : "SQLite - sentimentiq.db",
+        "db_ok"     : db_ok,
+        "data_rows" : data['data_rows'],
+    }
+
+
+@app.get("/")
+def root():
+    return {
+        "message": f"{CONFIG['app']['name']} running!",
+        "docs"   : "http://localhost:8000/docs",
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "backend:app",
+        host   = CONFIG['server']['host'],
+        port   = CONFIG['server']['port'],
+        reload = CONFIG['server']['reload'],
+    )
+
+
+    
