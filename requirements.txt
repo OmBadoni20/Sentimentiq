@@ -1,0 +1,21 @@
+# ── SentimentIQ Backend Dependencies ─────
+# Install all with:  pip install -r requirements.txt
+
+fastapi==0.111.0
+uvicorn==0.30.0
+pandas==2.2.0
+openpyxl==3.1.2
+python-multipart==0.0.9
+
+# AI agents (LangChain + Groq + Gemini)
+langchain==0.2.0
+langchain-core==0.2.0
+langchain-groq==0.1.5
+langchain-google-genai==1.0.5
+google-generativeai==0.5.4
+
+# Password hashing — required, used in auth_service.py
+passlib[bcrypt]==1.7.4
+
+# JWT tokens — required, used in auth_service.py
+python-jose[cryptography]==3.3.0

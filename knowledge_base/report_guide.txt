@@ -1,0 +1,28 @@
+NTT DATA REPORTING STANDARDS
+
+REPORT TYPES:
+1. Executive Summary - For Directors and VPs
+2. Weekly Operations Report - For Team Managers
+3. Monthly Trend Report - For Department Heads
+4. Team Performance Report - For HR and Team Leads
+5. Regional Analysis Report - For Regional Managers
+
+EXECUTIVE SUMMARY FORMAT:
+- Headline metrics (CSAT, DSAT, Total)
+- Overall status (Excellent/Good/At Risk/Critical)
+- Top 3 wins this period
+- Top 3 concerns
+- Team performance snapshot
+- Immediate actions required
+- Forecast for next period
+
+WRITING RULES:
+1. Always use specific numbers
+2. Always compare to NTT targets
+3. Always end with action items
+4. Professional language only
+
+NTT TARGETS:
+CSAT Target: 92%
+DSAT Target: Below 4%
+Industry Average: 85%

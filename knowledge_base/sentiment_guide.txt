@@ -1,0 +1,46 @@
+NTT DATA SENTIMENT ANALYSIS GUIDE
+
+KEY METRICS:
+CSAT = Customer Satisfaction Score
+ISHAPPY = 1 means satisfied customer
+Target: Above 92%
+Warning: Below 85%
+Critical: Below 75%
+
+DSAT = Customer Dissatisfaction Score
+ISSAD = 1 means dissatisfied customer
+Target: Below 4%
+Warning: Above 8%
+Critical: Above 12%
+
+HEALTH RATINGS:
+CSAT 95%+ = EXCELLENT
+CSAT 90-94% = GOOD
+CSAT 80-89% = NEEDS ATTENTION
+CSAT Below 75% = CRITICAL
+
+DSAT 0-3% = EXCELLENT
+DSAT 3-5% = GOOD
+DSAT 5-8% = NEEDS ATTENTION
+DSAT Above 12% = CRITICAL
+
+INDUSTRY BENCHMARKS:
+World Class CSAT: 95%+
+Excellent: 90-95%
+Industry Average: 80-85%
+
+NTT TARGETS:
+CSAT Target: 92%
+DSAT Target: Below 4%
+
+OUR TEAMS:
+Network, Infrastructure, Security,
+Cloud, Support, Operations, DevOps, Database
+
+OUR REGIONS:
+APAC, MEA, EMEA, AMER, LATAM, ANZ, SEA, INDIA
+
+ISSUE TYPES:
+VPN Connectivity, Password Reset, Email Issues,
+Slow Laptop, Internet Down, Software Installation,
+Printer Issues, Access Rights, System Crash, Mobile Device
