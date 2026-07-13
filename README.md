@@ -15,10 +15,6 @@ SentimentIQ turns raw customer feedback into decisions. It ingests feedback data
 
 Built with React, FastAPI, and LangChain — using native tool calling and a RAG pipeline over the knowledge base.
 
-> 📸 **Demo GIF coming soon** — drop a screen recording of the ticket agent in action here for maximum impact.
-
----
-
 ## Highlights
 
 - **Agentic architecture** — three AI agents using LangChain native tool calling that perform real, persistent database actions rather than returning text, backed by an operations dashboard that proves every action
