@@ -29,6 +29,8 @@ const C = {
   text: "#e6edf3",
   sub: "#8b949e",
   dim: "#484f58",
+  bright: "#34d399 ",
+  teal: "#39d0c4",
 };
 
 const TT = {
@@ -304,8 +306,8 @@ export default function Dashboard({
       !metrics
         ? []
         : [
-            { name: "CSAT", value: metrics.csat_pct || 0, fill: C.green },
-            { name: "DSAT", value: metrics.dsat_pct || 0, fill: C.red },
+            { name: "CSAT", value: metrics.csat_pct || 0, fill: C.teal },
+            { name: "DSAT", value: metrics.dsat_pct || 0, fill: C.bright },
           ],
     [metrics],
   );
@@ -561,37 +563,6 @@ export default function Dashboard({
         </div>
       </div>
 
-      {fileMeta && (
-        <div
-          style={{
-            margin: "10px 10px 0",
-            background: C.violet + "12",
-            border: `1px solid ${C.violet}30`,
-            borderRadius: 8,
-            padding: "8px 10px",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              color: C.violet,
-              fontWeight: 700,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            📁{" "}
-            {fileMeta.name.length > 22
-              ? fileMeta.name.slice(0, 20) + "…"
-              : fileMeta.name}
-          </div>
-          <div style={{ fontSize: 9, color: C.dim, marginTop: 3 }}>
-            {fileMeta.rows?.toLocaleString()} rows loaded
-          </div>
-        </div>
-      )}
-
       <nav
         style={{
           flex: 1,
@@ -812,14 +783,14 @@ export default function Dashboard({
               <KPI
                 label="Total Records"
                 value={(metrics?.total || 0).toLocaleString()}
-                sub={metrics ? "records loaded" : "no data yet"}
+                sub={metrics ? "records loaded" : ""}
                 accent={C.sky}
               />
               <KPI
                 label="CSAT"
                 value={`${metrics?.csat_pct || 0}%`}
                 sub={
-                  metrics ? `${metrics.csat_n || 0} satisfied` : "no data yet"
+                  metrics ? `${metrics.csat_n || 0} satisfied` : ""
                 }
                 accent={C.green}
               />
@@ -829,7 +800,7 @@ export default function Dashboard({
                 sub={
                   metrics
                     ? `${metrics.dsat_n || 0} dissatisfied`
-                    : "no data yet"
+                    : ""
                 }
                 accent={C.red}
               />
@@ -837,7 +808,7 @@ export default function Dashboard({
                 label="Neutral"
                 value={`${metrics?.neutral_pct || 0}%`}
                 sub={
-                  metrics ? `${metrics.neutral_n || 0} neutral` : "no data yet"
+                  metrics ? `${metrics.neutral_n || 0} neutral` : ""
                 }
                 accent={C.amber}
               />
@@ -869,12 +840,18 @@ export default function Dashboard({
                 >
                   Sentiment Distribution
                 </div>
-                <div style={{ fontSize: 10, color: C.sub, marginBottom: 14 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: C.sub,
+                    marginBottom: sentBarData.length > 0 ? 14 : 0,
+                  }}
+                >
                   {metrics
                     ? `Pos: ${metrics.pos_n || 0} · Neg: ${metrics.neg_n || 0} · Neu: ${metrics.neutral_n || 0}`
-                    : "No data"}
+                    : ""}
                 </div>
-                {sentBarData.length > 0 ? (
+                {sentBarData.length > 0 && (
                   <ResponsiveContainer width="100%" height={210}>
                     <BarChart data={sentBarData} barSize={55}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
@@ -894,8 +871,6 @@ export default function Dashboard({
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
-                ) : (
-                  <EmptyChart height={210} />
                 )}
               </div>
 
@@ -917,12 +892,18 @@ export default function Dashboard({
                 >
                   CSAT vs DSAT
                 </div>
-                <div style={{ fontSize: 10, color: C.sub, marginBottom: 14 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: C.sub,
+                    marginBottom: csatDsatBar.length > 0 ? 14 : 0,
+                  }}
+                >
                   {metrics
                     ? `CSAT: ${metrics.csat_pct || 0}% · DSAT: ${metrics.dsat_pct || 0}%`
-                    : "No data"}
+                    : ""}
                 </div>
-                {csatDsatBar.length > 0 ? (
+                {csatDsatBar.length > 0 && (
                   <ResponsiveContainer width="100%" height={210}>
                     <BarChart data={csatDsatBar} barSize={90}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
@@ -941,8 +922,6 @@ export default function Dashboard({
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
-                ) : (
-                  <EmptyChart height={210} />
                 )}
               </div>
             </div>
@@ -973,10 +952,18 @@ export default function Dashboard({
                 >
                   CSAT% and DSAT% by Team
                 </div>
-                <div style={{ fontSize: 10, color: C.sub, marginBottom: 14 }}>
-                  Team performance
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: C.sub,
+                    marginBottom: teamData.length > 0 ? 14 : 0,
+                  }}
+                >
+                  {teamData.length > 0
+                    ? "Team performance"
+                    : ""}
                 </div>
-                {teamData.length > 0 ? (
+                {teamData.length > 0 && (
                   <ResponsiveContainer width="100%" height={220}>
                     <BarChart data={teamData} barSize={12}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
@@ -1004,8 +991,6 @@ export default function Dashboard({
                       <Bar dataKey="DSAT%" fill={C.red} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
-                ) : (
-                  <EmptyChart height={220} />
                 )}
               </div>
 
@@ -1027,10 +1012,18 @@ export default function Dashboard({
                 >
                   CSAT% and DSAT% by Region
                 </div>
-                <div style={{ fontSize: 10, color: C.sub, marginBottom: 14 }}>
-                  Regional performance
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: C.sub,
+                    marginBottom: regionData.length > 0 ? 14 : 0,
+                  }}
+                >
+                  {regionData.length > 0
+                    ? "Regional performance"
+                    : ""}
                 </div>
-                {regionData.length > 0 ? (
+                {regionData.length > 0 && (
                   <ResponsiveContainer width="100%" height={220}>
                     <BarChart data={regionData} barSize={12}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
@@ -1062,8 +1055,6 @@ export default function Dashboard({
                       />
                     </BarChart>
                   </ResponsiveContainer>
-                ) : (
-                  <EmptyChart height={220} />
                 )}
               </div>
             </div>
@@ -1171,10 +1162,10 @@ export default function Dashboard({
                     marginBottom: 8,
                   }}
                 >
-                  No Data Imported Yet
+                
                 </div>
                 <div style={{ fontSize: 12, color: C.dim, marginBottom: 20 }}>
-                  Click Import File button above
+                  
                 </div>
                 <div
                   style={{
@@ -1224,40 +1215,6 @@ export default function Dashboard({
                 }}
               >
                 ⚠ {error}
-              </div>
-            )}
-
-            {rows.length > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  marginTop: 16,
-                }}
-              >
-                <button
-                  onClick={() => exportCSV(rows, "sentimentiq_data")}
-                  style={{
-                    background: C.green + "18",
-                    border: `1px solid ${C.green}50`,
-                    color: C.green,
-                    borderRadius: 10,
-                    padding: "10px 20px",
-                    fontSize: 12,
-                    fontWeight: 900,
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    letterSpacing: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  ⬇ Export CSV
-                  <span style={{ fontSize: 10, fontWeight: 400, color: C.dim }}>
-                    ({rows.length.toLocaleString()} rows)
-                  </span>
-                </button>
               </div>
             )}
           </div>
@@ -1429,7 +1386,15 @@ export default function Dashboard({
 
                   {effData.length > 0 && !analysisLoading && (
                     <>
-                      <div style={{ overflowX: "auto" }}>
+                      <div
+                        style={{
+                          overflowX: "auto",
+                          overflowY: "auto",
+                          maxHeight: "52vh",
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 8,
+                        }}
+                      >
                         <table
                           style={{
                             width: "100%",
@@ -1459,6 +1424,9 @@ export default function Dashboard({
                                     textAlign: h === "#" ? "center" : "left",
                                     whiteSpace: "nowrap",
                                     letterSpacing: 0.5,
+                                    position: "sticky",
+                                    top: 0,
+                                    zIndex: 1,
                                   }}
                                 >
                                   {h}
@@ -1477,6 +1445,7 @@ export default function Dashboard({
                                       i % 2 === 0
                                         ? "transparent"
                                         : C.bg2 + "50",
+                                    cursor: "pointer",
                                   }}
                                   onMouseEnter={(e) => {
                                     e.currentTarget.style.background =
@@ -1496,6 +1465,7 @@ export default function Dashboard({
                                       color: C.dim,
                                       textAlign: "center",
                                       fontSize: 10,
+                                      cursor: "pointer",
                                     }}
                                   >
                                     {idx + 1}
@@ -1507,6 +1477,7 @@ export default function Dashboard({
                                       color: C.text,
                                       whiteSpace: "nowrap",
                                       fontWeight: 600,
+                                      cursor: "pointer",
                                     }}
                                   >
                                     {row.Name}
@@ -1518,6 +1489,7 @@ export default function Dashboard({
                                       color: C.sky,
                                       whiteSpace: "nowrap",
                                       fontSize: 10,
+                                      cursor: "pointer",
                                     }}
                                   >
                                     {row.Email}
@@ -1531,6 +1503,7 @@ export default function Dashboard({
                                       overflow: "hidden",
                                       textOverflow: "ellipsis",
                                       whiteSpace: "nowrap",
+                                      cursor: "pointer",
                                     }}
                                     title={row.Comments}
                                   >
@@ -1542,6 +1515,7 @@ export default function Dashboard({
                                       border: `1px solid ${C.border}`,
                                       color: C.amber,
                                       whiteSpace: "nowrap",
+                                      cursor: "pointer",
                                     }}
                                   >
                                     {row.Type_of_Data}
@@ -1552,6 +1526,7 @@ export default function Dashboard({
                                       border: `1px solid ${C.border}`,
                                       color: C.violet,
                                       whiteSpace: "nowrap",
+                                      cursor: "pointer",
                                     }}
                                   >
                                     {row.Type_of_Issue}
@@ -1561,6 +1536,7 @@ export default function Dashboard({
                                       padding: "8px 12px",
                                       border: `1px solid ${C.border}`,
                                       textAlign: "center",
+                                      cursor: "pointer",
                                     }}
                                   >
                                     <span

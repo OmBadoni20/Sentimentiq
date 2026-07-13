@@ -307,7 +307,10 @@ def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend:app",
-                host=CONFIG['server']['host'],
-                port=CONFIG['server']['port'],
-                reload=CONFIG['server']['reload'])
+    uvicorn.run(
+        "backend:app",
+        host   = CONFIG['server']['host'],
+        port   = CONFIG['server']['port'],
+        reload = False,   # Fixed: False prevents the double-startup race
+                          # condition that caused "Cannot connect" on first login
+    )

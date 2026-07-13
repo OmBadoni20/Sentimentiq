@@ -500,7 +500,7 @@ export default function DataTable({ rows, onNotify }) {
           </button>
         )}
 
-        {/* EXPORT BUTTON — always visible */}
+        {/* Export — always exports the FILTERED + SORTED data, never the raw import */}
         <button
           onClick={doExport}
           style={{
@@ -517,19 +517,12 @@ export default function DataTable({ rows, onNotify }) {
           }}
         >
           ⬇ Export CSV
-          {isFiltered || isSorted
-            ? ` (${sorted.length.toLocaleString()} filtered)`
-            : ` (${safeRows.length.toLocaleString()} rows)`}
+          <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 4 }}>
+            ({sorted.length.toLocaleString()}{" "}
+            {isFiltered || isSorted ? "filtered" : "rows"})
+          </span>
         </button>
       </div>
-
-      {/* Pagination top */}
-      <PaginationBar
-        page={curPage}
-        totalPages={totalPages}
-        setPage={setPage}
-        totalFiltered={sorted.length}
-      />
 
       {/* Table */}
       <div
@@ -652,6 +645,7 @@ export default function DataTable({ rows, onNotify }) {
                   style={{
                     borderBottom: `1px solid ${C.border}22`,
                     background: ri % 2 ? "#ffffff04" : "transparent",
+                    cursor: "pointer",
                     transition: "background .1s",
                   }}
                   onMouseEnter={(e) =>
@@ -707,7 +701,7 @@ export default function DataTable({ rows, onNotify }) {
         </div>
       </div>
 
-      {/* Pagination bottom */}
+      {/* Pagination — bottom only */}
       <PaginationBar
         page={curPage}
         totalPages={totalPages}

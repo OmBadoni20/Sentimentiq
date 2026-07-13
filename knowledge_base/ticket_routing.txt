@@ -1,45 +1,45 @@
-NTT DATA IT TICKET ROUTING GUIDE
+company IT TICKET ROUTING GUIDE
 
 CATEGORY 1: VPN / Remote Access
 Keywords: vpn, remote, connect, cisco, anyconnect
 Route to: Network Team
-Email: network@nttdata.com
+Email: network@company.com
 SLA: 2 hours
 Self Help Steps:
 1. Open Cisco AnyConnect
 2. Click Disconnect if connected
 3. Wait 30 seconds then reconnect
-4. Try backup: vpn2.nttdata.com
+4. Try backup: vpn2.company.com
 5. Restart computer if failing
 
 CATEGORY 2: Password / Account
 Keywords: password, locked, login, reset, forgot
 Route to: IT Security Team
-Email: security@nttdata.com
+Email: security@company.com
 SLA: 1 hour
 Self Help Steps:
-1. Go to password.nttdata.com
+1. Go to password.company.com
 2. Click Forgot Password
-3. Enter your NTT email
+3. Enter your company email
 4. Check inbox for reset link
 5. New password needs 8+ chars, 1 uppercase, 1 number
 
 CATEGORY 3: Email / Outlook
 Keywords: email, outlook, mail, inbox, calendar
 Route to: Communication Team
-Email: comms@nttdata.com
+Email: comms@company.com
 SLA: 4 hours
 Self Help Steps:
 1. Close and reopen Outlook
 2. Check internet connection
-3. Try mail.nttdata.com
+3. Try mail.company.com
 4. Clear Outlook cache
 5. Restart computer
 
 CATEGORY 4: Laptop / Hardware
 Keywords: laptop, slow, crash, freeze, screen, battery
 Route to: Hardware Team
-Email: hardware@nttdata.com
+Email: hardware@company.com
 SLA: 24 hours
 Self Help Steps:
 1. Save work and restart laptop
@@ -50,7 +50,7 @@ Self Help Steps:
 CATEGORY 5: Internet / WiFi
 Keywords: internet, wifi, network, slow, connectivity
 Route to: Infrastructure Team
-Email: infra@nttdata.com
+Email: infra@company.com
 SLA: 1 hour
 Self Help Steps:
 1. Disconnect and reconnect WiFi
@@ -61,17 +61,17 @@ Self Help Steps:
 CATEGORY 6: Software / Applications
 Keywords: software, install, application, license, error
 Route to: IT Support Team
-Email: itsupport@nttdata.com
+Email: itsupport@company.com
 SLA: 8 hours
 Self Help Steps:
 1. Close and reopen application
 2. Restart computer
-3. Check IT Portal: itportal.nttdata.com
+3. Check IT Portal: itportal.company.com
 
 CATEGORY 7: Access / Permissions
 Keywords: access, permission, denied, folder, sharepoint
 Route to: IT Security Team
-Email: security@nttdata.com
+Email: security@company.com
 SLA: 4 hours
 Note: Needs manager approval
 
@@ -82,7 +82,7 @@ P3 MEDIUM: Work partially affected, respond within 8 hours
 P4 LOW: Minor issue, respond within 24 hours
 
 CONTACTS:
-IT Helpdesk: itsupport@nttdata.com
+IT Helpdesk: itsupport@company.com
 Emergency: +91-XXXX-XXXXXX
-Password Reset: password.nttdata.com
-Email Web: mail.nttdata.com
+Password Reset: password.company.com
+Email Web: mail.company.com

@@ -1,4 +1,4 @@
-NTT DATA REPORTING STANDARDS
+company DATA REPORTING STANDARDS
 
 REPORT TYPES:
 1. Executive Summary - For Directors and VPs
@@ -18,11 +18,11 @@ EXECUTIVE SUMMARY FORMAT:
 
 WRITING RULES:
 1. Always use specific numbers
-2. Always compare to NTT targets
+2. Always compare to company targets
 3. Always end with action items
 4. Professional language only
 
-NTT TARGETS:
+company TARGETS:
 CSAT Target: 92%
 DSAT Target: Below 4%
 Industry Average: 85%

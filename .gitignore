@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# SentimentIQ sensitive files
+config.json
+sentimentiq.db
+
+# Environment
+.env

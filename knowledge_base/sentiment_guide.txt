@@ -1,4 +1,4 @@
-NTT DATA SENTIMENT ANALYSIS GUIDE
+company  SENTIMENT ANALYSIS GUIDE
 
 KEY METRICS:
 CSAT = Customer Satisfaction Score
@@ -29,7 +29,7 @@ World Class CSAT: 95%+
 Excellent: 90-95%
 Industry Average: 80-85%
 
-NTT TARGETS:
+company TARGETS:
 CSAT Target: 92%
 DSAT Target: Below 4%
 

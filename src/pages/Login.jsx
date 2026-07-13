@@ -22,10 +22,36 @@ export default function Login({ onLogin }) {
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState(""); // shows "Connecting to server…" while retrying
+
+  // ── Fetch with automatic retry ──────────────────────────
+  // The backend takes a few seconds to start (it builds the RAG
+  // vector store and loads the AI models). This retries the
+  // request silently a few times so the FIRST login attempt
+  // succeeds instead of showing a connection error.
+  async function fetchWithRetry(url, options, retries = 5, delay = 1500) {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const res = await fetch(url, options);
+        return res; // got a response (even a 401) — stop retrying
+      } catch (err) {
+        // Connection refused — backend not ready yet
+        if (attempt < retries - 1) {
+          setStatus(
+            `Connecting to server… (attempt ${attempt + 2} of ${retries})`,
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        } else {
+          throw err; // out of retries
+        }
+      }
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setStatus("");
 
     // Basic validation
     if (!username.trim()) {
@@ -40,8 +66,8 @@ export default function Login({ onLogin }) {
     setLoading(true);
 
     try {
-      // ── Call backend /auth/login API ─────────────────
-      const response = await fetch(`${API}/auth/login`, {
+      // ── Call backend /auth/login API (with retry) ─────
+      const response = await fetchWithRetry(`${API}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -50,6 +76,7 @@ export default function Login({ onLogin }) {
         }),
       });
 
+      setStatus("");
       const data = await response.json();
 
       if (!response.ok) {
@@ -60,17 +87,15 @@ export default function Login({ onLogin }) {
       }
 
       // ── Login success ────────────────────────────────
-      // Save token for future API calls
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
-
-      // Pass user to App.jsx
       onLogin(data.user);
     } catch (err) {
-      // Backend not running
+      // Backend genuinely unreachable after all retries
+      setStatus("");
       setError(
         "Cannot connect to server. " +
-          "Make sure backend is running on port 8000.",
+          "Make sure the backend is running on port 8000.",
       );
       setLoading(false);
     }
@@ -263,6 +288,23 @@ export default function Login({ onLogin }) {
               </button>
             </div>
           </div>
+
+          {/* Connecting status (shown while retrying) */}
+          {status && (
+            <div
+              style={{
+                background: C.cyan + "12",
+                border: `1px solid ${C.cyan}35`,
+                borderRadius: 8,
+                padding: "10px 13px",
+                fontSize: 12,
+                color: C.cyan,
+                fontWeight: 600,
+              }}
+            >
+              ⏳ {status}
+            </div>
+          )}
 
           {/* Error message from backend */}
           {error && (

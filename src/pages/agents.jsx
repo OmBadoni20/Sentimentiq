@@ -45,11 +45,11 @@ const AGENTS = [
     modelColor: "#4285f4",
     color: C.green,
     endpoint: "/agent/sentiment",
-    desc: "Analyzes CSAT DSAT data and RAISES ALERTS for teams or regions performing below target",
+    desc: "Analyzes CSAT/DSAT data and RAISES ALERTS for teams or regions performing below the 92% target",
     suggestions: [
       "Which team has the lowest CSAT score and why?",
       "What is our overall sentiment health status?",
-      "Flag all teams below the NTT target",
+      "Flag all teams below the company target",
       "Which region is performing worst?",
       "What should we prioritize to improve CSAT?",
     ],
@@ -224,7 +224,11 @@ function ChatWindow({ agent, token, username }) {
           </div>
         </div>
         <button
-          onClick={() => setMessages([])}
+          onClick={() => {
+            setMessages([]);
+            setInput("");
+            setLoading(false);
+          }}
           style={{
             background: "transparent",
             border: `1px solid ${C.border}`,
